@@ -4,6 +4,9 @@ Professor Corey J. A. Bradshaw<br>
 Global Ecology, Flinders University<br>
 <a href="mailto:corey.bradshaw@flinders.edu.au">e-mail</a><br>
 <br>
+<strong>Team</strong>:<br>
+- Associate Professor <a href="https://researchportalplus.anu.edu.au/en/persons/larissa-schneider">Larissa Schneider</a>, Australian National University
+- Adjunct Professor <a href="https://scholar.google.com.au/citations?user=O3mHBygAAAAJ&hl=en">Patrice de Caritat</a>, Curtin University
 
 ## Aims
 - identify external and indirect determinants of mercury (Hg)
