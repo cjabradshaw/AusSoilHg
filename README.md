@@ -21,7 +21,7 @@ Professor <a href="https://globalecologyflinders.com/people">Corey J. A. Bradsha
 ### <a href="data/samplept">Sample point</a>
 - <em><a href="data/samplept/geochem.csv">geochem.csv</a></em>: geochemical data
 - <em><a href="data/samplept/field.csv">field.csv</a></em>: sample point characteristics
-- <em><a href="data/samplept/Hg.csv">Hg.csv</a></em>: re-analysed [Hg] estimates
+- <em><a href="data/samplept/Hg.csv">Hg.csv</a></em>: re-analysed [Hg] estimates (ng/g)
 - <em><a href="data/samplept/gs.csv">gs.csv</a></em>: grain-size category percentages
  
 ### <a href="data/spatial">Spatial</a>
