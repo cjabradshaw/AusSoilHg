@@ -13,5 +13,9 @@ Global Ecology, Flinders University<br>
 - understand environmental conditions that influence mercury retention and mobility
 - predict continental distribution of soil mercury
 
+## Scripts
+
+## Data
+
 ## required R libraries
 <code>ade4</code>,<code>adegraphics</code>,<code>adespatial</code>,<code>boot</code>,<code>dismo</code>,<code>dplyr</code>,<code>fields</code>,<code>gbm</code>,<code>geodata</code>,<code>geosphere</code>,<code>ggplot2</code>,<code>kableExtra</code>,<code>ncdf4</code>,<code>pdp</code>,<code>randomForestExplainer</code>,<code>rnaturalearthdata</code>,<code>sf</code>,<code>sp</code>,<code>spatialRF</code>,<code>spdep</code>,<code>terra</code>,<code>tidyverse</code>,<code>usdm</code>
