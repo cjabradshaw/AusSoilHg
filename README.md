@@ -15,6 +15,7 @@ Professor <a href="https://globalecologyflinders.com/people">Corey J. A. Bradsha
 - predict continental distribution of soil mercury
 
 ## Scripts
+- <code><a href="scripts/HgGH.R">HgGH.R</a></code>: all required R code combined
 
 ## <a href="data">Data</a>
 ### <a href="data/samplept">Sample point</a>
