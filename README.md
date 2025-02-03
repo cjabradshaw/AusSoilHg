@@ -17,6 +17,31 @@ Global Ecology, Flinders University<br>
 ## Scripts
 
 ## Data
+### Sample point
+- <em>geochem.csv</em>: geochemical data
+- <em>field.csv</em>: sample point characteristics
+- <em>hg.csv</em>: re-analysed [Hg] estimates
+- <em>gs.csv</em>: grain-size category percentages
+ 
+### Spatial
+- <em>aus.shp</em>: Australia boundary shapefile
+- <em>wwf_terr_ecos.shp</em>: WWF ecoregions shapefile
+- <em>GeologicUnitPolygons1M.shp</em>: 1:5e6 geological unit polygon shapefile
+- <em>lithreclass.csv</em>: reclassified lithology groups text file
+- <em>radmap_v4_2019_filtered_ML_KThU_RGB_24bit.tif</em>: potassium:thorium:uranium geotif raster
+- <em>radmap_v4_2019_filtered_ML_ppmTh_32bitfloat_grid.tif</em>: thorium ppm geotif raster
+- <em>radmap_v4_2019_filtered_ML_ppmU_32bitfloat_grid.tif</em>: uranium ppm geotif raster
+- <em>radmap_v4_2019_filtered_ML_pctk_32bitfloat_grid.tif</em>: % potassium geotif raster
+- <em>NTO_000_005_EV_N_P_AU_NAT_C_20231101.tif</em>: soil nitrogen (0-5 cm) geotif raster
+- <em>PTO_000_005_EV_N_P_AU_NAT_C_20231101.tif</em>: soil phosphorus (0-5 cm) geotif raster
+- <em>pHc_000_005_EV_N_P_AU_NAT_C_20140801.tif</em>: soil pH (0-5 cm) geotif raster
+- <em>OzWALD.annual.Pg.AnnualSums.nc</em>: annual precipitation NetCDF
+- <em>PrescottIndex_01_3s_lzw.tif</em>: Prescott index geotif raster
+- <em>OzWALD.Ssoil.AnnualMeans.nc</em>: soil water availability NetCDF
+- <em>OzWALD.LAI.AnnualMeans.nc</em>: leaf area index NetCDF
+- <em>OzWALD.GPP.AnnualMeans.nc</em>: vegetation carbon uptake (gross primary production) NetCDF
+- <em>CLY_000_005_EV_N_P_AU_TRN_N_20210902.tif</em>: % soil clay content geotif raster
+- <em>SLT_000_005_EV_N_P_AU_TRN_N_20210902.tif</em>: % soil silt content geotif raster
 
 ## required R libraries
 - <code>ade4</code>,<code>adegraphics</code>,<code>adespatial</code>,<code>boot</code>,<code>dismo</code>,<code>dplyr</code>,<code>fields</code>,<code>gbm</code>,<code>geodata</code>,<code>geosphere</code>,<code>ggplot2</code>,<code>kableExtra</code>,<code>ncdf4</code>,<code>pdp</code>,<code>randomForestExplainer</code>,<code>rnaturalearthdata</code>,<code>sf</code>,<code>sp</code>,<code>spatialRF</code>,<code>spdep</code>,<code>terra</code>,<code>tidyverse</code>,<code>usdm</code>
