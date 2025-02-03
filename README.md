@@ -2,7 +2,7 @@
 <img align="right" src="www/HgPredSpatRFbt.jpg" alt="predicted [Hg]" width="300" style="margin-top: 20px">
 
 Professor <a href="https://globalecologyflinders.com/people">Corey J. A. Bradshaw</a><br>
-Global Ecology, Flinders University<br>
+<a href="https://globalecologyflinders.com/">Global Ecology | <em>Partuyarta Ngadluku Wardli Kuu</em></a>, <a href="https://flinders.edu.au">Flinders University</a><br>
 <a href="mailto:corey.bradshaw@flinders.edu.au">e-mail</a><br>
 <br>
 <strong>Team</strong>:<br>
