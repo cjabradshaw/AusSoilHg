@@ -27,7 +27,7 @@ Global Ecology, Flinders University<br>
 - <em>aus.shp</em>: Australia boundary shapefile
 - <em>wwf_terr_ecos.shp</em>: WWF ecoregions shapefile
 - <em>GeologicUnitPolygons1M.shp</em>: 1:5e6 geological unit polygon shapefile
-- <em>lithreclass.csv</em>: reclassified lithology groups text file
+- <em><a href="data/spatial/lithreclass.csv">lithreclass.csv</a></em>: reclassified lithology groups text file
 - <em>radmap_v4_2019_filtered_ML_KThU_RGB_24bit.tif</em>: potassium:thorium:uranium geotif raster
 - <em>radmap_v4_2019_filtered_ML_ppmTh_32bitfloat_grid.tif</em>: thorium ppm geotif raster
 - <em>radmap_v4_2019_filtered_ML_ppmU_32bitfloat_grid.tif</em>: uranium ppm geotif raster
