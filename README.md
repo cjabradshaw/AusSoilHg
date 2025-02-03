@@ -24,8 +24,8 @@ Global Ecology, Flinders University<br>
 - <em>gs.csv</em>: grain-size category percentages
  
 ### Spatial
-- <em>aus.shp</em>: Australia boundary shapefile
-- <em>wwf_terr_ecos.shp</em>: WWF ecoregions shapefile
+- <em><a href="data/spatial/aus.zip">aus.shp</a></em>: Australia boundary shapefile (zipped)
+- <em><a href="https://files.worldwildlife.org/wwfcmsprod/files/Publication/file/6kcchn7e3u_official_teow.zip">wwf_terr_ecos.shp</a></em>: WWF ecoregions shapefile (zipped)
 - <em>GeologicUnitPolygons1M.shp</em>: 1:5e6 geological unit polygon shapefile
 - <em><a href="data/spatial/lithreclass.csv">lithreclass.csv</a></em>: reclassified lithology groups text file
 - <em>radmap_v4_2019_filtered_ML_KThU_RGB_24bit.tif</em>: potassium:thorium:uranium geotif raster
