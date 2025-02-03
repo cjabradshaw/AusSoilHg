@@ -1,0 +1,250 @@
+LITHOLOGY,LITHGRP
+alkaline ultrabasic,MAF
+anthropogenic,OTH
+argillaceous detrital sediment,SIL
+argillaceous detrital sediment; feldspar- or lithic-rich arenite to rudite,SIL
+argillaceous detrital sediment; igneous felsic volcanic,SIL
+argillaceous detrital sediment; igneous felsic-intermediate intrusive,SIL
+argillaceous detrital sediment; igneous felsic-intermediate volcanic,SIL
+argillaceous detrital sediment; igneous mafic volcanic,SIL
+argillaceous detrital sediment; igneous volcanic,SIL
+argillaceous detrital sediment; metasedimentary,SIL
+argillaceous detrital sediment; metasedimentary siliciclastic,SIL
+argillaceous detrital sediment; mineralisation,SIL
+argillaceous detrital sediment; organic-rich rock,SIL
+argillaceous detrital sediment; quartz-rich arenite to rudite,SIL
+argillaceous detrital sediment; sedimentary,SIL
+argillaceous detrital sediment; sedimentary carbonate,SIL
+argillaceous detrital sediment; sedimentary non-carbonate chemical or biochemical,SIL
+argillaceous detrital sediment; sedimentary siliciclastic,SIL
+fault / shear rock,OTH
+feldspar- or lithic-rich arenite to rudite,SIL
+feldspar- or lithic-rich arenite to rudite; argillaceous detrital sediment,SIL
+feldspar- or lithic-rich arenite to rudite; igneous felsic volcanic,SIL
+feldspar- or lithic-rich arenite to rudite; igneous intermediate volcanic,SIL
+feldspar- or lithic-rich arenite to rudite; igneous mafic volcanic,SIL
+feldspar- or lithic-rich arenite to rudite; igneous volcanic,SIL
+feldspar- or lithic-rich arenite to rudite; metasedimentary siliciclastic,SIL
+feldspar- or lithic-rich arenite to rudite; organic-rich rock,SIL
+feldspar- or lithic-rich arenite to rudite; sedimentary carbonate,SIL
+feldspar- or lithic-rich arenite to rudite; sedimentary non-carbonate chemical or biochemical,SIL
+feldspar- or lithic-rich arenite to rudite; sedimentary siliciclastic,SIL
+high grade metamorphic rock,MET
+high grade metamorphic rock; fault / shear rock,MET
+high grade metamorphic rock; igneous felsic intrusive,MET
+high grade metamorphic rock; igneous mafic intrusive,MET
+high grade metamorphic rock; meta-igneous mafic,MET
+high grade metamorphic rock; meta-igneous mafic intrusive,MET
+high grade metamorphic rock; metasedimentary siliciclastic,MET
+igneous,IGN
+igneous carbonatite,CAR
+igneous felsic intrusive,FEL
+igneous felsic intrusive; high grade metamorphic rock,FEL
+igneous felsic intrusive; igneous felsic volcanic,FEL
+igneous felsic intrusive; igneous intermediate intrusive,FEL
+igneous felsic intrusive; igneous mafic intrusive,FEL
+igneous felsic intrusive; meta-igneous felsic,FEL
+igneous felsic intrusive; meta-igneous felsic intrusive,FEL
+igneous felsic intrusive; meta-igneous mafic,FEL
+igneous felsic intrusive; metasedimentary siliciclastic,FEL
+igneous felsic intrusive; metasomatic,FEL
+igneous felsic volcanic,FEL
+igneous felsic volcanic; argillaceous detrital sediment,FEL
+igneous felsic volcanic; feldspar- or lithic-rich arenite to rudite,FEL
+igneous felsic volcanic; igneous felsic intrusive,FEL
+igneous felsic volcanic; igneous intermediate volcanic,FEL
+igneous felsic volcanic; igneous mafic volcanic,FEL
+igneous felsic volcanic; igneous volcanic,FEL
+igneous felsic volcanic; meta-igneous felsic volcanic,FEL
+igneous felsic volcanic; metasedimentary,FEL
+igneous felsic volcanic; metasedimentary siliciclastic,FEL
+igneous felsic volcanic; sedimentary,FEL
+igneous felsic volcanic; sedimentary carbonate,FEL
+igneous felsic volcanic; sedimentary siliciclastic,FEL
+igneous felsic-intermediate intrusive,INT
+igneous felsic-intermediate intrusive; igneous felsic intrusive,INT
+igneous felsic-intermediate volcanic,INT
+igneous felsic-intermediate volcanic; argillaceous detrital sediment,INT
+igneous felsic-intermediate volcanic; feldspar- or lithic-rich arenite to rudite,INT
+igneous felsic-intermediate volcanic; igneous felsic volcanic,INT
+igneous felsic-intermediate volcanic; quartz-rich arenite to rudite,INT
+igneous felsic-intermediate volcanic; sedimentary siliciclastic,INT
+igneous foid-bearing volcanic,IGN
+igneous foid-bearing volcanic; igneous intermediate volcanic,IGN
+igneous foid-bearing volcanic; igneous mafic volcanic,IGN
+igneous intermediate intrusive,INT
+igneous intermediate intrusive; igneous felsic intrusive,INT
+igneous intermediate intrusive; igneous mafic intrusive,INT
+igneous intermediate intrusive; meta-igneous mafic,INT
+igneous intermediate intrusive; meta-igneous mafic intrusive,INT
+igneous intermediate volcanic,INT
+igneous intermediate volcanic; feldspar- or lithic-rich arenite to rudite,INT
+igneous intermediate volcanic; igneous felsic volcanic,INT
+igneous intermediate volcanic; igneous mafic volcanic,INT
+igneous intermediate volcanic; igneous volcanic,INT
+igneous intermediate volcanic; sedimentary siliciclastic,INT
+igneous intrusive,IGN
+igneous kimberlite,IGN
+igneous lamproites,IGN
+igneous lamproites; igneous volcanic,IGN
+igneous mafic intrusive,MAF
+igneous mafic intrusive; high grade metamorphic rock,MAF
+igneous mafic intrusive; igneous felsic intrusive,MAF
+igneous mafic intrusive; igneous foid-bearing intrusive,MAF
+igneous mafic intrusive; igneous intermediate intrusive,MAF
+igneous mafic intrusive; igneous mafic volcanic,MAF
+igneous mafic intrusive; igneous ultramafic intrusive,MAF
+igneous mafic intrusive; meta-igneous mafic,MAF
+igneous mafic intrusive; meta-igneous ultramafic intrusive,MAF
+igneous mafic volcanic,MAF
+igneous mafic volcanic; argillaceous detrital sediment,MAF
+igneous mafic volcanic; feldspar- or lithic-rich arenite to rudite,MAF
+igneous mafic volcanic; igneous felsic volcanic,MAF
+igneous mafic volcanic; igneous felsic-intermediate volcanic,MAF
+igneous mafic volcanic; igneous foid-bearing volcanic,MAF
+igneous mafic volcanic; igneous intermediate volcanic,MAF
+igneous mafic volcanic; igneous mafic intrusive,MAF
+igneous mafic volcanic; igneous ultramafic,MAF
+igneous mafic volcanic; igneous ultramafic intrusive,MAF
+igneous mafic volcanic; igneous volcanic,MAF
+igneous mafic volcanic; meta-igneous felsic,MAF
+igneous mafic volcanic; meta-igneous mafic volcanic,MAF
+igneous mafic volcanic; meta-igneous ultramafic,MAF
+igneous mafic volcanic; sedimentary,MAF
+igneous mafic volcanic; sedimentary non-carbonate chemical or biochemical,MAF
+igneous mafic volcanic; sedimentary siliciclastic,MAF
+igneous ultramafic intrusive,MAF
+igneous ultramafic intrusive; igneous ultramafic volcanic,MAF
+igneous ultramafic intrusive; meta-igneous ultramafic intrusive,MAF
+igneous ultramafic intrusive; meta-igneous ultramafic volcanic,MAF
+igneous ultramafic volcanic,MAF
+igneous ultramafic volcanic; igneous ultramafic intrusive,MAF
+igneous ultramafic volcanic; meta-igneous ultramafic intrusive,MAF
+igneous ultramafic; meta-igneous ultramafic,MAF
+igneous volcanic,IGN
+igneous volcanic; argillaceous detrital sediment,IGN
+igneous volcanic; igneous felsic intrusive,IGN
+igneous volcanic; igneous felsic volcanic,IGN
+igneous volcanic; igneous mafic intrusive,IGN
+igneous volcanic; sedimentary,IGN
+igneous; sedimentary,IGN
+igneous; sedimentary siliciclastic,IGN
+low grade metamorphic rock,MET
+meta-igneous,MET
+meta-igneous felsic,FEL
+meta-igneous felsic intrusive,FEL
+meta-igneous felsic intrusive; igneous felsic intrusive,FEL
+meta-igneous felsic volcanic,FEL
+meta-igneous felsic volcanic; meta-igneous felsic intrusive,FEL
+meta-igneous felsic volcanic; metasedimentary siliciclastic,FEL
+meta-igneous felsic; igneous felsic intrusive,FEL
+meta-igneous felsic; meta-igneous mafic,FEL
+meta-igneous felsic; metasedimentary,FEL
+meta-igneous mafic,MAF
+meta-igneous mafic intrusive,MAF
+meta-igneous mafic intrusive; igneous mafic intrusive,MAF
+meta-igneous mafic volcanic,MAF
+meta-igneous mafic volcanic; igneous mafic intrusive,MAF
+meta-igneous mafic volcanic; igneous mafic volcanic,MAF
+meta-igneous mafic volcanic; meta-igneous ultramafic volcanic,MAF
+meta-igneous mafic volcanic; metasedimentary carbonate,MAF
+meta-igneous mafic volcanic; metasedimentary siliciclastic,MAF
+meta-igneous mafic volcanic; sedimentary non-carbonate chemical or biochemical,MAF
+meta-igneous mafic volcanic; sedimentary siliciclastic,MAF
+meta-igneous mafic; igneous mafic intrusive,MAF
+meta-igneous mafic; meta-igneous ultramafic,MAF
+meta-igneous mafic; meta-igneous ultramafic intrusive,MAF
+meta-igneous mafic; metasedimentary siliciclastic,MAF
+meta-igneous mafic; sedimentary siliciclastic,MAF
+meta-igneous ultramafic,MAF
+meta-igneous ultramafic intrusive,MAF
+meta-igneous ultramafic intrusive; igneous mafic intrusive,MAF
+meta-igneous ultramafic intrusive; meta-igneous mafic,MAF
+meta-igneous ultramafic intrusive; meta-igneous ultramafic,MAF
+meta-igneous ultramafic volcanic,MAF
+meta-igneous ultramafic volcanic; meta-igneous ultramafic intrusive,MAF
+meta-igneous ultramafic; meta-igneous mafic,MAF
+meta-igneous; metasedimentary,MET
+meta-igneous; metasedimentary siliciclastic,MET
+metamorphic,MET
+metamorphic protolith unknown,MET
+metamorphic protolith unknown; high grade metamorphic rock,MET
+metamorphic; metasedimentary carbonate,MET
+metamorphic; sedimentary,MET
+metasedimentary,MET
+metasedimentary carbonate,CAR
+metasedimentary carbonate; meta-igneous felsic volcanic,CAR
+metasedimentary carbonate; meta-igneous mafic,CAR
+metasedimentary carbonate; metasedimentary siliciclastic,CAR
+metasedimentary non-carbonate chemical or biochemical,MET
+metasedimentary siliciclastic,SIL
+metasedimentary siliciclastic; argillaceous detrital sediment,SIL
+metasedimentary siliciclastic; feldspar- or lithic-rich arenite to rudite,SIL
+metasedimentary siliciclastic; high grade metamorphic rock,SIL
+metasedimentary siliciclastic; igneous,SIL
+metasedimentary siliciclastic; igneous intermediate volcanic,SIL
+metasedimentary siliciclastic; igneous mafic volcanic,SIL
+metasedimentary siliciclastic; meta-igneous felsic,SIL
+metasedimentary siliciclastic; meta-igneous mafic,SIL
+metasedimentary siliciclastic; meta-igneous mafic volcanic,SIL
+metasedimentary siliciclastic; meta-igneous ultramafic,SIL
+metasedimentary siliciclastic; metasedimentary,SIL
+metasedimentary siliciclastic; metasedimentary carbonate,SIL
+metasedimentary siliciclastic; sedimentary carbonate,SIL
+metasedimentary siliciclastic; sedimentary non-carbonate chemical or biochemical,SIL
+metasedimentary siliciclastic; sedimentary siliciclastic,SIL
+metasedimentary; high grade metamorphic rock,MET
+metasedimentary; meta-igneous,MET
+metasedimentary; meta-igneous felsic,MET
+metasedimentary; meta-igneous mafic,MET
+metasomatic,OTH
+metasomatic; igneous felsic intrusive,OTH
+organic-rich rock; sedimentary siliciclastic,OTH
+quartz-rich arenite to rudite,SIL
+quartz-rich arenite to rudite; igneous felsic volcanic,SIL
+quartz-rich arenite to rudite; organic-rich rock,SIL
+quartz-rich arenite to rudite; sedimentary carbonate,SIL
+regolith,OTH
+regolith; argillaceous detrital sediment,OTH
+regolith; sedimentary carbonate,OTH
+regolith; sedimentary siliciclastic,OTH
+rock,OTH
+sedimentary,SED
+sedimentary carbonate,CAR
+sedimentary carbonate; argillaceous detrital sediment,CAR
+sedimentary carbonate; feldspar- or lithic-rich arenite to rudite,CAR
+sedimentary carbonate; igneous mafic volcanic,CAR
+sedimentary carbonate; igneous volcanic,CAR
+sedimentary carbonate; sedimentary,CAR
+sedimentary carbonate; sedimentary carbonate,CAR
+sedimentary carbonate; sedimentary non-carbonate chemical or biochemical,CAR
+sedimentary carbonate; sedimentary siliciclastic,CAR
+sedimentary non-carbonate chemical or biochemical,SED
+sedimentary non-carbonate chemical or biochemical; argillaceous detrital sediment,SED
+sedimentary non-carbonate chemical or biochemical; feldspar- or lithic-rich arenite to rudite,SED
+sedimentary non-carbonate chemical or biochemical; igneous mafic intrusive,SED
+sedimentary non-carbonate chemical or biochemical; meta-igneous mafic,SED
+sedimentary non-carbonate chemical or biochemical; meta-igneous ultramafic,SED
+sedimentary non-carbonate chemical or biochemical; metasedimentary siliciclastic,SED
+sedimentary non-carbonate chemical or biochemical; metasomatic,SED
+sedimentary non-carbonate chemical or biochemical; sedimentary carbonate,SED
+sedimentary non-carbonate chemical or biochemical; sedimentary siliciclastic,SED
+sedimentary siliciclastic,SIL
+sedimentary siliciclastic; argillaceous detrital sediment,SIL
+sedimentary siliciclastic; feldspar- or lithic-rich arenite to rudite,SIL
+sedimentary siliciclastic; igneous felsic volcanic,SIL
+sedimentary siliciclastic; igneous felsic-intermediate volcanic,SIL
+sedimentary siliciclastic; igneous intermediate volcanic,SIL
+sedimentary siliciclastic; igneous mafic volcanic,SIL
+sedimentary siliciclastic; igneous volcanic,SIL
+sedimentary siliciclastic; metasedimentary siliciclastic,SIL
+sedimentary siliciclastic; organic-rich rock,SIL
+sedimentary siliciclastic; quartz-rich arenite to rudite,SIL
+sedimentary siliciclastic; regolith,SIL
+sedimentary siliciclastic; sedimentary carbonate,SIL
+sedimentary siliciclastic; sedimentary non-carbonate chemical or biochemical,SIL
+sedimentary; igneous felsic volcanic,SED
+sedimentary; igneous volcanic,SED
+sedimentary; sedimentary non-carbonate chemical or biochemical,SED
+unknown,OTH
+vein,OTH
