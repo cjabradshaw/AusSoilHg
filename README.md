@@ -25,8 +25,8 @@ Global Ecology, Flinders University<br>
  
 ### <a href="data/spatial">Spatial</a>
 - <em><a href="data/spatial/aus.zip">aus.shp</a></em>: Australia boundary shapefile (zipped)
-- <em><a href="https://files.worldwildlife.org/wwfcmsprod/files/Publication/file/6kcchn7e3u_official_teow.zip">wwf_terr_ecos.shp</a></em>: WWF ecoregions shapefile (zipped)
-- <em>GeologicUnitPolygons1M.shp</em>: 1:5e6 geological unit polygon shapefile
+- <em><a href="https://files.worldwildlife.org/wwfcmsprod/files/Publication/file/6kcchn7e3u_official_teow.zip">wwf_terr_ecos.shp</a></em>: WWF ecoregions shapefile (download zipped)
+- <em><a href="https://d28rz98at9flks.cloudfront.net/74619/74619_1M_shapefiles.zip">GeologicUnitPolygons1M.shp</a></em>: 1:1,000,000 geological unit polygon shapefile (download zipped)
 - <em><a href="data/spatial/lithreclass.csv">lithreclass.csv</a></em>: reclassified lithology groups text file
 - <em>radmap_v4_2019_filtered_ML_KThU_RGB_24bit.tif</em>: potassium:thorium:uranium geotif raster
 - <em>radmap_v4_2019_filtered_ML_ppmTh_32bitfloat_grid.tif</em>: thorium ppm geotif raster
