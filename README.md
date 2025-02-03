@@ -1,4 +1,5 @@
 # Predicting continental distribution of soil mercury concentration in Australia
+<img align="right" src="www/HgPredSpatRFbt.jpg" alt="predicted [Hg]" width="200" style="margin-top: 20px">
 
 Professor Corey J. A. Bradshaw<br>
 Global Ecology, Flinders University<br>
