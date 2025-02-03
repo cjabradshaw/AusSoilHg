@@ -16,14 +16,14 @@ Global Ecology, Flinders University<br>
 
 ## Scripts
 
-## Data
-### Sample point
+## <a href="data">Data</a>
+### <a href="data/samplept">Sample point</a>
 - <em>geochem.csv</em>: geochemical data
 - <em>field.csv</em>: sample point characteristics
 - <em>hg.csv</em>: re-analysed [Hg] estimates
 - <em>gs.csv</em>: grain-size category percentages
  
-### Spatial
+### <a href="data/spatial">Spatial</a>
 - <em><a href="data/spatial/aus.zip">aus.shp</a></em>: Australia boundary shapefile (zipped)
 - <em><a href="https://files.worldwildlife.org/wwfcmsprod/files/Publication/file/6kcchn7e3u_official_teow.zip">wwf_terr_ecos.shp</a></em>: WWF ecoregions shapefile (zipped)
 - <em>GeologicUnitPolygons1M.shp</em>: 1:5e6 geological unit polygon shapefile
