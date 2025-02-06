@@ -31,6 +31,7 @@ library(rnaturalearth)
 library(rnaturalearthdata)
 library(sf)
 library(sp)
+library(spatstat)
 library(spdep)
 library(spatialRF)
 library(terra)
@@ -477,6 +478,30 @@ datmrg$lucat <- ifelse(datmrg$LANDUSE1 == "5 5 0 Services" |
                                        datmrg$lucat == "5 8 0 Mining",
                                      "built", datmrg$lucat)
 table(datmrg$lucat)
+
+## land use https://www.agriculture.gov.au/abares/aclump/land-use/data-download
+setwd("~/Documents/Papers/Soil/Hg Aus/data/land use/")
+lu <- rast('NLUM_v7_250_ALUMV8_2020_21_alb.tif')
+terra::plot(lu)
+
+# extract
+lu.Hgpts <- terra::extract(lu, Hgpts)
+head(lu.Hgpts)
+table(lu.Hgpts$TERTV8)
+lu.Hgpts$plu <- as.numeric(substr(lu.Hgpts$TERTV8, 1, 1))
+
+lu.key <- data.frame(plu = 1:6, landuse = c("conservation/natural", "production-relatively natural", "production-dryland agr",
+                                            "production-irrigated agr", "intensive", "water"))
+# add code names for lu categories
+lu.inf <- lu.Hgpts %>%
+  left_join(lu.key, by="plu")
+head(lu.inf)
+table(lu.inf$landuse.y)
+table(lu.Hgpts$plu)
+
+# add to data
+datmrg$landuse <- lu.inf$landuse.y
+
 
 # date recognition
 datmrg$posixdate <- as.POSIXct(datmrg$DATE.x, format="%d.%m.%Y")
@@ -1070,6 +1095,39 @@ ggplot(HgXlucat.sort, aes(x = reorder(lucat, mean), y = mean)) +
     axis.text.x = element_text(size = 16),
     axis.text.y = element_text(size = 12))
 
+TOS.HgXlanduse <- sort(xtabs(TOS.dat$HgCOMP ~ TOS.dat$landuse) / table(TOS.dat$landuse))
+barplot(TOS.HgXlanduse, xlab="primary landuse category", ylab="mean TOS [Hg]", col="blue")
+BOS.HgXlanduse <- sort(xtabs(BOS.dat$HgCOMP ~ BOS.dat$landuse) / table(BOS.dat$landuse))
+barplot(BOS.HgXlanduse, xlab="primary landuse category", ylab="mean BOS [Hg]", col="blue")
+
+HgXlanduse.stats <- TOS.dat %>%
+  group_by(landuse) %>%
+  summarise(
+    mean = mean(HgCOMP, na.rm = TRUE),
+    median = median(HgCOMP, na.rm = TRUE), 
+    var = var(HgCOMP, na.rm = TRUE),
+    sd = sd(HgCOMP, na.rm = TRUE),
+    se = sd/sqrt(n()),
+    upper = quantile(HgCOMP, probs=0.975, na.rm = TRUE),
+    lower = quantile(HgCOMP, probs=0.025, na.rm = TRUE),
+    n = n()
+  )
+
+HgXlanduse.sort <- HgXlanduse.stats %>% arrange(mean)
+HgXlanduse.sort
+ggplot(HgXlanduse.sort, aes(x = reorder(landuse, mean), y = mean)) +
+  geom_bar(stat='identity', fill = "steelblue") +
+  geom_errorbar(aes(ymin = mean-(2*se), ymax = mean+(2*se)),
+                width = 0.2) +
+  labs(x = "land-use category", y = "mean [Hg] ± 2 se") +
+  theme(# axis labels (titles)
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 16),
+    
+    # Axis text (values)
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 12))
+
 
 # Hg by landform
 TOS.HgXlndfrm <- sort(xtabs(TOS.dat$HgCOMP ~ TOS.dat$LANDFORM.TYPE) / table(TOS.dat$LANDFORM.TYPE))
@@ -1469,6 +1527,362 @@ gbm.plot.fits(BOS.brt)
 BOS.brt.CV.cor <- 100 * BOS.brt$cv.statistics$correlation.mean
 BOS.brt.CV.cor.se <- 100 * BOS.brt$cv.statistics$correlation.se
 print(c(BOS.brt.CV.cor, BOS.brt.CV.cor.se))
+
+
+#########################################
+# randomised BRT using distance matrix ##
+#########################################
+TOS.brt.dat.rsmp <- na.omit(TOS.test[,c("LON","LAT","lHg","lgs","lgtclay","pH15","lelecond","lLOI","prescott","soilH20","llai","soillN","soillP",
+                               "lAl","lMn","lCu","lPb","lSb","lNi","lKThU")])
+dim(TOS.brt.dat.rsmp)
+head(TOS.brt.dat.rsmp)
+TOS.brt.dat.rsmp.coords <- as.data.frame(TOS.brt.dat.rsmp[,c("LON","LAT")])
+dim(TOS.brt.dat.rsmp.coords)
+head(TOS.brt.dat.rsmp.coords)
+
+# Haversine distance matrix
+coords.TOS.brt.dat.rsmp <- data.frame(
+  longitude = TOS.brt.dat.rsmp$LON,
+  latitude = TOS.brt.dat.rsmp$LAT
+)
+
+TOS.brt.dat.rsmp_haversine_matrix <- distm(
+  x = coords.TOS.brt.dat.rsmp,
+  fun = distHaversine
+)
+
+dim(TOS.brt.dat.rsmp_haversine_matrix)
+range(TOS.brt.dat.rsmp_haversine_matrix)
+
+# @param df data frame containing coordinate columns
+# @param min_dist numeric value specifying the minimum distance required between points
+# @param target_n optional integer specifying desired number of points (default: NULL)
+# @param dist_matrix distance matrix between points
+# @param x_col character string naming the x-coordinate column (default: "x")
+# @param y_col character string naming the y-coordinate column (default: "y")
+# @return data frame containing the selected points
+select_distant_points <- function(df, min_dist, target_n = NULL, dist_matrix,
+                                  x_col = "x", y_col = "y") {
+  # input validation
+  if (!is.data.frame(df)) {
+    stop("input 'df' must be a data frame")
+  }
+  if (!all(c(x_col, y_col) %in% names(df))) {
+    stop("specified coordinate columns not found in data frame")
+  }
+  if (!is.numeric(min_dist) || min_dist <= 0) {
+    stop("min_dist must be a positive number")
+  }
+  if (!is.null(target_n)) {
+    if (!is.numeric(target_n) || target_n <= 0 || target_n != round(target_n)) {
+      stop("target_n must be a positive integer")
+    }
+    if (target_n > nrow(df)) {
+      stop("target_n cannot be larger than the number of input points")
+    }
+  }
+  
+  # convert coordinates to matrix for distance calculation
+  coords <- as.matrix(df[, c(x_col, y_col)])
+  
+  # initialize variables
+  n_points <- nrow(df)
+  selected <- logical(n_points)
+  
+  # select first point randomly
+  current <- sample(n_points, 1)
+  selected[current] <- TRUE
+  n_selected <- 1
+  
+  # maximum possible points given distance constraint
+  available <- which(!selected)
+  
+  # selection loop
+  while(length(available) > 0) {
+    # Find points that satisfy distance constraint
+    valid <- available[apply(dist_matrix[selected, available, drop = FALSE], 2,
+                             function(x) all(x >= min_dist))]
+    
+    # break if no valid points remain or target reached
+    if (length(valid) == 0 || (!is.null(target_n) && n_selected >= target_n)) {
+      break
+    }
+    
+    # randomly select next point from valid candidates
+    next_point <- sample(valid, 1)
+    selected[next_point] <- TRUE
+    n_selected <- n_selected + 1
+    
+    # update available points
+    available <- which(!selected)
+  }
+  
+  # Return selected points
+  return(df[selected, , drop = FALSE])
+}
+
+# select points with minimum distance of 350 km
+min.dist <- 250000 # large enough to remove most spatial autocorrelation, but small enough to ensure adequate points for training BRT
+npts2generate <- 100
+coords.ran <- select_distant_points(df = TOS.brt.dat.rsmp.coords, min_dist = min.dist, target_n = npts2generate,
+                      dist_matrix = TOS.brt.dat.rsmp_haversine_matrix, x_col = "LON", y_col = "LAT")
+dim(coords.ran)
+head(coords.ran)
+coords.ran.pts <- vect(cbind(coords.ran$LON, 
+                                           coords.ran$LAT), crs="+proj=longlat")
+terra::plot(coords.ran.pts)
+
+# subset random points for BRT training data
+TOS.ran.subset <- na.omit(TOS.brt.dat.rsmp[as.numeric(row.names(coords.ran)), ])
+head(TOS.ran.subset)
+
+## boosted regression tree
+TOS.ran.brt <- gbm.step(TOS.ran.subset, gbm.x = attr(TOS.ran.subset, "names")[c(4:length(colnames(TOS.ran.subset)))],
+                    gbm.y = attr(TOS.ran.subset, "names")[3], family="gaussian", max.trees=100000,
+                    tolerance = 0.0002, learning.rate = 0.0005, bag.fraction=0.75,
+                    tree.complexity = 2, silent=F, tolerance.method = "auto")
+summary(TOS.ran.brt)
+gbm.plot(TOS.ran.brt, smooth=T, rug=T, n.plots=12, common.scale=T, write.title=F, show.contrib=T, 
+         y.label="log10 [Hg]")
+
+object_exists <- function(obj_name) {
+  exists(obj_name, envir = .GlobalEnv)
+}
+
+# needed functions
+modifyVecFunc <- function(obj_name, index, new_value) {
+  tryCatch({
+    if (!object_exists(obj_name)) {
+      stop("object does not exist: ", obj_name)
+    }
+    
+    obj <- get(obj_name)
+    
+    # check object type and handle accordingly
+    if (is.vector(obj) && !is.list(obj)) {
+      if (index > length(obj)) stop("index out of bounds")
+      obj[index] <- new_value
+    } else if (is.list(obj)) {
+      if (index > length(obj)) stop("index out of bounds")
+      obj[[index]] <- new_value
+    } else if (is.data.frame(obj)) {
+      if (!all(index <= dim(obj))) stop("index out of bounds")
+      obj[index[1], index[2]] <- new_value
+    } else {
+      stop("unsupported object type")
+    }
+    
+    # Save modified object back to its original name
+    assign(obj_name, obj, envir = .GlobalEnv)
+    
+  }, error = function(e) {
+    message("error: ", e$message)
+    return(FALSE)
+  })
+}
+
+# resampled BRT
+biter <- 10000
+bitdiv <- biter/10
+bitdiv2 <- biter/100
+st.time <- Sys.time()
+eq.sp.pts <- 100
+traincols <- attr(TOS.ran.subset, "names")[c(4:length(colnames(TOS.ran.subset)))] # variable columns used to train data
+ntraincols <- length(traincols)
+
+# create storage arrays
+val.arr <- pred.arr <- array(data=NA, dim=c(eq.sp.pts, ntraincols, biter), dimnames=list(paste("x",1:eq.sp.pts,sep=""), traincols, paste("b",1:biter,sep="")))
+
+# create storage vectors
+ri.vec.names <- paste(traincols,".ri",sep="")
+CV.cor.vec <- CV.cor.se.vec <- rep(NA,biter)
+for (r in 1:ntraincols) {
+  assign(ri.vec.names[r], rep(NA,biter))}
+
+# b loop
+for (b in 1:biter) {
+  # generate random coords
+  coords.ran <- select_distant_points(df = TOS.brt.dat.rsmp.coords, min_dist = min.dist, target_n = npts2generate,
+                                      dist_matrix = TOS.brt.dat.rsmp_haversine_matrix, x_col = "LON", y_col = "LAT")
+  
+  # subset random points for BRT training data
+  TOS.ran.subset <- na.omit(TOS.brt.dat.rsmp[as.numeric(row.names(coords.ran)), ])
+  
+  ## boosted regression tree
+  TOS.ran.brt <- gbm.step(TOS.ran.subset, gbm.x = attr(TOS.ran.subset, "names")[c(4:length(colnames(TOS.ran.subset)))],
+                          gbm.y = attr(TOS.ran.subset, "names")[3], family="gaussian", max.trees=100000,
+                          tolerance = 0.0002, learning.rate = 0.0005, bag.fraction=0.75,
+                          tree.complexity = 2, silent=T, tolerance.method = "auto", plot.main=F, plot.folds=F)
+  
+  # error catch
+  if (b == 1 & is.null(TOS.ran.brt)==F) {
+    TOS.ran.brt.old <- TOS.ran.brt
+  }
+  if (is.null(TOS.ran.brt) == T) {
+    TOS.ran.brt <- gbm.step(TOS.ran.subset, gbm.x = attr(TOS.ran.subset, "names")[c(4:length(colnames(TOS.ran.subset)))],
+                            gbm.y = attr(TOS.ran.subset, "names")[3], family="gaussian", max.trees=100000,
+                            tolerance = 0.0002, learning.rate = 0.0005, bag.fraction=0.75,
+                            tree.complexity = 2, silent=T, step.size=20, tolerance.method = "auto", plot.main=F, plot.folds=F)
+  }
+  if (is.null(TOS.ran.brt) == T) {
+    TOS.ran.brt <- TOS.ran.brt.old
+  }
+  
+  # summary
+  summ.fit <- summary(TOS.ran.brt)
+  
+  if (is.null(TOS.ran.brt) == F) {
+    TOS.ran.brt.old <- TOS.ran.brt
+  }
+  
+  # variable relative importance
+  for (ri in 1:ntraincols) {
+    modifyVecFunc(ri.vec.names[ri], b, new_value=summ.fit$rel.inf[which(summ.fit$var == traincols[ri])])
+  }
+  
+  # goodness of fit
+  CV.cor.vec[b] <- 100*TOS.ran.brt$cv.statistics$correlation.mean
+  CV.cor.se.vec[b] <- 100*TOS.ran.brt$cv.statistics$correlation.se
+  
+  # response curves
+  RESP.val <- RESP.pred <- matrix(data=NA, nrow=eq.sp.pts, ncol=ntraincols)
+  for (p in 1:ntraincols) {
+    RESP.val[,p] <- plot.gbm(TOS.ran.brt, i.var=p, continuous.resolution = eq.sp.pts, return.grid=T)[,1]
+    RESP.pred[,p] <- plot.gbm(TOS.ran.brt, i.var=p, continuous.resolution = eq.sp.pts, return.grid=T)[,2]
+  } # end p
+  RESP.val.dat <- as.data.frame(RESP.val)
+  colnames(RESP.val.dat) <- TOS.ran.brt$var.names
+  RESP.pred.dat <- as.data.frame(RESP.pred)
+  colnames(RESP.pred.dat) <- TOS.ran.brt$var.names
+  
+  # add to storage arrays
+  val.arr[, , b] <- as.matrix(RESP.val.dat)
+  pred.arr[, , b] <- as.matrix(RESP.pred.dat)
+  
+  # loop updaters with voice (English)
+  if (b %% bitdiv2==0) print(paste("iter = ", b, sep=""))
+  
+  if (b %% bitdiv==0 & b < biter) system2("say", c("-v", "Fiona", paste(round(100*(b/biter), 1), 
+                                                                       "per cent complete"))) # updates every 10% complete
+  if (b == 0.95*biter) system2("say", c("-v", "Fiona", paste(round(100*(b/biter), 1), 
+                                                            "per cent complete"))) # announce at 95% complete
+  if (b == 0.99*biter) system2("say", c("-v", "Fiona", paste(round(100*(b/biter), 1),
+                                                            "per cent complete"))) # announce at 99% complete
+  
+  if (b == biter) system2("say", c("-v", "Lee", "simulation complete"))
+  if (b == biter) system2("say", c("-v", "Lee", paste(round(as.numeric(Sys.time() - st.time,
+                                                                      units = "mins"), 2), "minutes elapsed")))
+} # end b
+
+# kappa method to reduce effects of outliers on bootstrap estimates
+kappa <- 2
+kappa.n <- ntraincols
+pred.update <- pred.arr[,,1:biter]
+
+for (k in 1:kappa.n) {
+  boot.mean <- apply(pred.update, MARGIN=c(1,2), mean, na.rm=T)
+  boot.sd <- apply(pred.update, MARGIN=c(1,2), sd, na.rm=T)
+  
+  for (z in 1:biter) {
+    pred.update[,,z] <- ifelse((pred.update[,,z] < (boot.mean-kappa*boot.sd) | pred.update[,,z] >
+                                  (boot.mean+kappa*boot.sd)), NA, pred.update[,,z])
+  } # end z
+  print(k)
+} # end k
+
+pred.med <- apply(pred.update, MARGIN=c(1,2), median, na.rm=T)
+pred.lo <- apply(pred.update, MARGIN=c(1,2), quantile, probs=0.025, na.rm=T)
+pred.up <- apply(pred.update, MARGIN=c(1,2), quantile, probs=0.975, na.rm=T)
+val.med <- apply(val.arr[,,1:biter], MARGIN=c(1,2), median, na.rm=T)
+
+# kappa method for output vectors
+CV.cor.update <- CV.cor.vec[1:biter]
+CV.cor.se.update <- CV.cor.se.vec[1:biter]
+
+# update ri vectors
+ri.vec.update.names <- paste(ri.vec.names,".update",sep="")
+for (ri in 1:ntraincols) {
+  assign(ri.vec.update.names[ri], get(ri.vec.names[ri])[1:biter])
+}
+
+vec.mean.names <- paste(traincols,".mean",sep="")
+vec.sd.names <- paste(traincols,".sd",sep="")
+
+for (k in 1:kappa.n) {
+  CV.cor.mean <- mean(CV.cor.update, na.rm=T); CV.cor.sd <- sd(CV.cor.update, na.rm=T)
+  CV.cor.se.mean <- mean(CV.cor.se.update, na.rm=T); CV.cor.se.sd <- sd(CV.cor.se.update, na.rm=T)
+  
+  for (v in 1:ntraincols) {
+    assign(vec.mean.names[v], mean(get(ri.vec.update.names[v]), na.rm=T))
+    assign(vec.sd.names[v], sd(get(ri.vec.update.names[v]), na.rm=T))
+  } # end v loop
+  
+  for (u in 1:biter) {
+    CV.cor.update[u] <- ifelse((CV.cor.update[u] < (CV.cor.mean-kappa*CV.cor.sd) | CV.cor.update[u] >
+                                  (CV.cor.mean+kappa*CV.cor.sd)), NA, CV.cor.update[u])
+    CV.cor.se.update[u] <- ifelse((CV.cor.se.update[u] < (CV.cor.se.mean-kappa*CV.cor.se.sd) | CV.cor.se.update[u] >
+                                    (CV.cor.se.mean+kappa*CV.cor.se.sd)), NA, CV.cor.se.update[u])
+    for (ri in 1:ntraincols) {
+      modifyVecFunc(ri.vec.update.names[ri], u, ifelse((get(ri.vec.update.names[ri])[u]) < 
+                                                       (get(vec.mean.names[ri]) - kappa*get(vec.sd.names[ri])),
+                                                        NA, get(ri.vec.update.names[ri])[u]))
+    } # end ri loop    
+  } # end u loop
+  print(k)
+} # end k loop
+
+# summaries
+CV.cor.med <- median(CV.cor.update, na.rm=T)
+CV.cor.lo <- quantile(CV.cor.update, probs=0.025, na.rm=T)
+CV.cor.up <- quantile(CV.cor.update, probs=0.975, na.rm=T)
+print(c(CV.cor.lo, CV.cor.med, CV.cor.up))
+
+ri.vec.lo.names <- paste(traincols,".ri.lo",sep="")
+ri.vec.up.names <- paste(traincols,".ri.up",sep="")
+ri.vec.med.names <- paste(traincols,".ri.med",sep="")
+
+for (ri in 1:ntraincols) {
+  assign(ri.vec.lo.names[ri], quantile(get(ri.vec.update.names[ri]), probs=0.025, na.rm=T))
+  assign(ri.vec.med.names[ri], median(get(ri.vec.update.names[ri]), na.rm=T))
+  assign(ri.vec.up.names[ri], quantile(get(ri.vec.update.names[ri]), probs=0.975, na.rm=T))
+}
+
+ri.lo <- as.numeric(mget(ri.vec.lo.names))
+ri.med <- as.numeric(mget(ri.vec.med.names))
+ri.up <- as.numeric(mget(ri.vec.up.names))
+ri.out <- as.data.frame(cbind(ri.med, ri.up, ri.lo))
+rownames(ri.out) <- traincols
+ri.sort <- ri.out[order(ri.out[,1], decreasing=T),]
+ri.sort
+
+# plot
+ri.plt <- ggplot(ri.sort) +
+  geom_bar(aes(x=reorder(row.names(ri.sort), ri.med), y=ri.med), stat="identity", fill="blue", alpha=0.7) +
+  geom_errorbar( aes(x=row.names(ri.sort), ymin=ri.lo, ymax=ri.up),
+                 linewidth=0.4, colour="black", alpha=0.9)
+ri.plt + coord_flip() +
+  xlab("relative influence") + ylab("")
+
+print(round(c(CV.cor.lo,CV.cor.med,CV.cor.up), 2))
+
+## plot predicted relationships of top x variables
+topNvars <- 9 # x
+head(pred.med)
+ri.sort
+top.ri.sort <- ri.sort[1:topNvars,]
+topNvars.names <- rownames(top.ri.sort)
+ylims <- c(min(pred.lo[,topNvars.names], na.rm=T), max(pred.up[,topNvars.names], na.rm=T))
+
+plotNvec <- paste("plt",1:topNvars,sep="")
+for (v in 1:topNvars) {
+  assign(plotNvec[v], ggplot(data=as.data.frame(cbind(val.med[,topNvars.names[v]], pred.med[,topNvars.names[v]],
+                                                           pred.lo[,topNvars.names[v]], pred.up[,topNvars.names[v]]))) +
+    geom_line(aes(x=V1, y=V2), colour="blue") +
+    geom_ribbon(aes(x=V1, ymin=V3, ymax=V4), fill="blue", alpha=0.3) +
+    lims(y=ylims) +
+    xlab(topNvars.names[v]) + ylab("log10 [Hg]"))
+}
+(plt1 + plt2 + plt3) / (plt4 + plt5 + plt6) / (plt7 + plt8 + plt9)
 
 
 
