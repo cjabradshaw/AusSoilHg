@@ -6,37 +6,37 @@
 # rm(list = ls())
 
 # libraries
-library(ade4)
-library(adegraphics)
-library(adespatial)
-library(blockCV)
-library(boot)
-library(caret)       # for model training and prediction
-library(dismo)
-library(dplyr)
-library(fields)     # distance matrix utilities
-library(gbm)
-library(geodata)
-library(geosphere)  # geographic distance calculations
-library(ggplot2)
-library(gstat)       # for geostatistical modelling
-library(kableExtra)
-library(ncdf4)
-library(patchwork)
-library(pdp)
-library(randomForest) # for random forest modelling
+library(ade4) # analyse ecological/environmental data
+library(adegraphics) # visualisation of ade4 objects
+library(adespatial) 
+library(blockCV) # blocking of spatially structured data
+library(boot) # bootstrapping
+library(caret) # for model training and prediction
+library(dismo) # distribution modelling
+library(dplyr) # data manipulation
+library(fields) # distance matrix utilities
+library(gbm) # boosted regression trees
+library(geodata) # downloading spatial data
+library(geosphere) # geographic distance calculations
+library(ggplot2) # plotting
+library(gstat) # for geostatistical modelling
+library(kableExtra) # tabulation
+library(ncdf4) # opening NetCDF files
+library(patchwork) # multiplot layouts
+library(pdp) # partial dependence plots
+library(randomForest) # random forest modelling
 library(randomForestExplainer)
-library(raster)      # for raster data handling
-library(rnaturalearth)
-library(rnaturalearthdata)
-library(sf)
-library(sp)
-library(spatialRF)
-library(spatstat)
-library(spdep)
-library(terra)
-library(tidyverse)
-library(usdm)
+library(raster) # raster data handling
+library(rnaturalearth) # natural Earth map data
+library(rnaturalearthdata) # vector map data
+library(sf) # sf objects
+library(sp) # methods for spatial data
+library(spatialRF) # spatial regression with random forest
+library(spatstat) # analysis of spatial point patterns
+library(spdep) # package version & build info
+library(terra) # spatial data manipulation & visualisation
+library(tidyverse) # data management
+library(usdm) # variable inflation
 
 # import datasets
 ## geochemical dataset
