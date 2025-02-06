@@ -2525,7 +2525,7 @@ p3 <- ggplot2::ggplot() +
   ) +
   ggplot2::theme_bw() +
   ggplot2::theme(legend.position = "bottom") +
-  ggplot2::ggtitle("Prescot index") +
+  ggplot2::ggtitle("Prescott index") +
   ggplot2::theme(
     plot.title = ggplot2::element_text(hjust = 0.5),
     legend.key.width = ggplot2::unit(1,"cm")
