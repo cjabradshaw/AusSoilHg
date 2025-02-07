@@ -479,6 +479,10 @@ datmrg$lucat <- ifelse(datmrg$LANDUSE1 == "5 5 0 Services" |
                                      "built", datmrg$lucat)
 table(datmrg$lucat)
 
+## Hg sample location coordinates
+Hgpts <- vect(cbind(datmrg$LON.x, datmrg$LAT.x), crs="+proj=longlat")
+terra::plot(Hgpts)
+
 ## land use https://www.agriculture.gov.au/abares/aclump/land-use/data-download
 setwd("~/Documents/Papers/Soil/Hg Aus/data/land use/")
 lu <- rast('NLUM_v7_250_ALUMV8_2020_21_alb.tif')
@@ -537,10 +541,6 @@ biome.key
 
 # plot (warning: can take long time to plot)
 terra::plot(WWFecoregions, 'BIOME')
-
-# Hg sample location coordinates
-Hgpts <- vect(cbind(datmrg$LON.x, datmrg$LAT.x), crs="+proj=longlat")
-terra::plot(Hgpts)
 
 # add Australia boundary
 world <- geodata::world(path = tempdir())
