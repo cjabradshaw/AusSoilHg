@@ -9,7 +9,7 @@ Professor <a href="https://globalecologyflinders.com/people">Corey J. A. Bradsha
 <strong>Team</strong>:<br>
 - Associate Professor <a href="https://researchportalplus.anu.edu.au/en/persons/larissa-schneider">Larissa Schneider</a>, Australian National University
 - Adjunct Professor <a href="https://scholar.google.com.au/citations?user=O3mHBygAAAAJ&hl=en">Patrice de Caritat</a>, Curtin University
-- Professor <a href="">Simon Haberle</a>, Australian National University
+- Professor <a href="https://researchportalplus.anu.edu.au/en/persons/simon-haberle">Simon Haberle</a>, Australian National University
 
 ## Aims
 - identify external and indirect determinants of mercury (Hg)
