@@ -500,11 +500,11 @@ lu.key <- data.frame(plu = 1:6, landuse = c("conservation/natural", "production-
 lu.inf <- lu.Hgpts %>%
   left_join(lu.key, by="plu")
 head(lu.inf)
-table(lu.inf$landuse.y)
+table(lu.inf$landuse)
 table(lu.Hgpts$plu)
 
 # add to data
-datmrg$landuse <- lu.inf$landuse.y
+datmrg$landuse <- lu.inf$landuse
 
 
 # date recognition
