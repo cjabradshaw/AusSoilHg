@@ -2702,7 +2702,7 @@ envVars2
 HgPredNoSpat <- terra::predict(envVars2, model.non.spatial, na.rm=T)
 plot(HgPredNoSpat)
 points(HgDat, pch=20, col="black", cex=0.5)
-HgPredNoSpat.rf.bt <- HgPred^10
+HgPredNoSpat.rf.bt <- HgPredNoSpat^10
 plot(HgPredNoSpat.rf.bt)
 writeRaster(HgPredNoSpat.rf.bt, "HgPredNoSpatRFbt.tif", overwrite=T)
 
@@ -2710,7 +2710,7 @@ HgPredSpat <- terra::predict(envVars2, model.spatial, na.rm=T)
 plot(HgPredSpat)
 writeRaster(HgPredSpat, "HgPredSpatRFlog10.tif", overwrite=T)
 points(HgDat, pch=20, col="black", cex=0.5)
-HgPredSpat.rf.bt <- HgPred^10
+HgPredSpat.rf.bt <- HgPredSpat^10
 plot(HgPredSpat.rf.bt)
 writeRaster(HgPredSpat.rf.bt, "HgPredSpatRFbt.tif", overwrite=T)
 
