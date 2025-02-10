@@ -2284,9 +2284,6 @@ range(distance.matrix)
 #distance thresholds (same units as distance_matrix)
 distance.thresholds <- seq(from=0, to=.9e6, by=5e4)
 
-#random seed for reproducibility
-random.seed <- 1
-
 world <- rnaturalearth::ne_countries(
   scale = "medium", 
   returnclass = "sf"
@@ -2352,7 +2349,6 @@ interactions <- spatialRF::the_feature_engineer(
   xy = xy,
   importance.threshold = 0.50, # uses 50% best predictors
   cor.threshold = 0.60, # max corr between interactions and predictors
-  seed = random.seed,
   repetitions = 100,
   verbose = TRUE
 )
@@ -2372,7 +2368,6 @@ model.non.spatial <- spatialRF::rf(
   distance.matrix = distance.matrix,
   distance.thresholds = distance.thresholds,
   xy = xy, # not needed by rf, but other functions read it from the model
-  seed = random.seed,
   verbose = FALSE,
   scaled.importance=T
 )
@@ -2654,7 +2649,6 @@ model.non.spatial <- spatialRF::rf_evaluate(
   repetitions = 30,         # number of spatial folds
   training.fraction = 0.75, # training data fraction on each fold
   metrics = "r.squared",
-  seed = random.seed,
   verbose = FALSE
 )
 spatialRF::plot_evaluation(model.non.spatial)
@@ -2679,7 +2673,6 @@ model.spatial <- spatialRF::rf_spatial(
   xy = xy,
   method = "mem.moran.sequential", # default method
   verbose = FALSE,
-  seed = random.seed,
   scaled.importance=T
 )
 
@@ -2738,7 +2731,6 @@ kableExtra::kbl(
 model.spatial.repeat <- spatialRF::rf_repeat(
   model = model.spatial, 
   repetitions = 30,
-  seed = random.seed,
   verbose = FALSE
 )
 
@@ -2764,8 +2756,7 @@ comparison <- spatialRF::rf_compare(
   xy = xy,
   repetitions = 30,
   training.fraction = 0.8,
-  metrics = "r.squared",
-  seed = random.seed
+  metrics = "r.squared"
 )
 
 x <- comparison$comparison.df %>% 
