@@ -48,7 +48,7 @@ Most of these files are too large to store in this repository directly, so in mo
 - <em><a href="https://data.csiro.au/collection/csiro:55684">CLY_000_005_EV_N_P_AU_TRN_N_20210902.tif</a></em>: % soil clay content geotif raster (download from original site)
 - <em><a href="https://data.csiro.au/collection/csiro:10688?q=soil%20silt&_st=keyword&_str=12&_si=1">SLT_000_005_EV_N_P_AU_TRN_N_20210902.tif</a></em>: % soil silt content geotif raster (download from original site)
 
-### Prediction
+### <a href="data/predicted">Predicted</a>
 - <em>HgPredSpatRFlog10.nc</em>: This is the NetCDF file for the output map of Australia-wide Hg concentration predicted from the random forest model. Given Github file-size constraints, we have broken the file into similar-sized chunks, and then compressed them using the fast, lossless compression algorithm <code>zstd</code>. First, decompress each .zst chunk using the following command in Terminal: <code>zstd -d 'HgPredSpatRFlog10.nc_chunk_a*.zst'</code>, and then combine chunks <em>a</em> to <em>i</em> using the following Terminal command: <code>cat HgPredSpatRFlog10.nc_chunk_* | gunzip > HgPredSpatRFlog10.nc</code>.
 
 ## required R libraries
