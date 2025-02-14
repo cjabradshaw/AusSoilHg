@@ -2654,7 +2654,7 @@ model.non.spatial <- spatialRF::rf_evaluate(
 spatialRF::plot_evaluation(model.non.spatial)
 
 # predicted values of [Hg]
-predicted <- stats::predict(object = model.non.spatial, data = HgDat, type = "response")$predictions
+predicted.non.spatial <- stats::predict(object = model.non.spatial, data = HgDat, type = "response")$predictions
 
 # spatial random forest
 # Moran's I
@@ -2663,18 +2663,11 @@ spatialRF::plot_moran(
   verbose = FALSE
 )
 
-# create spatial model
-model.spatial <- spatialRF::rf_spatial(
-  data=HgDat,
-  dependent.variable.name = dependent.variable.name,
-  predictor.variable.names = predictor.variable.names,
-  distance.matrix = distance.matrix,
-  distance.thresholds = as.vector(3e5),
-  xy = xy,
-  method = "mem.moran.sequential", # default method
-  verbose = FALSE,
-  scaled.importance=T
-)
+ model.spatial <- spatialRF::rf_spatial(
+   model = model.non.spatial,
+   method = "mem.moran.sequential", #default method
+   verbose = FALSE
+ )
 
 spatialRF::print_performance(model.spatial)
 
@@ -2683,11 +2676,10 @@ spatialRF::plot_moran(
   verbose = FALSE
 )
 
-
 model.spatial$importance$per.variable$variable
 names(envVars)
 envVars2 <- c(soilN.rsmp,lai.rsmp,Prescott.rsmp,soilH20.rsmp,KThU.rsmp,soilP.rsmp,pH.rsmp,clay.rsmp)
-names(envVars2) <- model.spatial$importance$per.variable$variable
+names(envVars2) <- c("soilN", "lai", "Prescott", "soilH20", "KThU", "soilP", "pH", "clay")
 names(envVars2)
 plot(envVars2)
 envVars2
@@ -2697,16 +2689,12 @@ plot(HgPredNoSpat)
 points(HgDat, pch=20, col="black", cex=0.5)
 HgPredNoSpat.rf.bt <- HgPredNoSpat^10
 plot(HgPredNoSpat.rf.bt)
-writeRaster(HgPredNoSpat.rf.bt, "HgPredNoSpatRFbt.tif", overwrite=T)
 
 HgPredSpat <- terra::predict(envVars2, model.spatial, na.rm=T)
 plot(HgPredSpat)
-writeRaster(HgPredSpat, "HgPredSpatRFlog10.tif", overwrite=T)
 points(HgDat, pch=20, col="black", cex=0.5)
 HgPredSpat.rf.bt <- HgPredSpat^10
 plot(HgPredSpat.rf.bt)
-writeRaster(HgPredSpat.rf.bt, "HgPredSpatRFbt.tif", overwrite=T)
-
 
 p1 <- spatialRF::plot_importance(
   model.non.spatial, 
@@ -2726,48 +2714,356 @@ kableExtra::kbl(
 ) %>%
   kableExtra::kable_paper("hover", full_width = F)
 
+# model tuning
+model.spatial <- spatialRF::rf_spatial(
+  model = model.spatial,
+  method = "mem.moran.sequential", #default method
+  ranger.arguments = list(
+    mtry = 5,
+    min.node.size = 20,
+    num.trees = 500
+  ),
+  verbose = FALSE,
+  seed = random.seed
+)
+
+model.spatial <- rf_tuning(
+  model = model.spatial,
+  xy = xy,
+  repetitions = 30,
+  num.trees = c(500, 1000),
+  mtry = seq(
+    2,
+    length(model.spatial$ranger.arguments$predictor.variable.names), # number of predictors
+    by = 9),
+  min.node.size = c(5, 15),
+  seed = random.seed,
+  verbose = FALSE
+)
 
 # stochastic version
 model.spatial.repeat <- spatialRF::rf_repeat(
   model = model.spatial, 
-  repetitions = 30,
+  repetitions = 250,
+  seed = random.seed,
   verbose = FALSE
 )
 
 # variable importance
-spatialRF::plot_importance(
+stochSpatialRFvarImp <- spatialRF::plot_importance(
   model.spatial.repeat, 
   verbose = FALSE
 )
+stochSpatialRFvarImp
+str(stochSpatialRFvarImp)
+stochSpatialRFvarImp.dat <- stochSpatialRFvarImp$data
+
+viXvar.stats <- stochSpatialRFvarImp.dat %>%
+  group_by(variable) %>%
+  summarise(
+    mean = mean(importance, na.rm = TRUE),
+    median = median(importance, na.rm = TRUE), 
+    var = var(importance, na.rm = TRUE),
+    sd = sd(importance, na.rm = TRUE),
+    se = sd/sqrt(n()),
+    upper = quantile(importance, probs=0.975, na.rm = TRUE),
+    lower = quantile(importance, probs=0.025, na.rm = TRUE),
+    n = n()
+  )
+viXvar.stats
 
 # response curves
-spatialRF::plot_response_curves(
-  model.spatial.repeat, 
-  quantiles = 0.5,
-  ncol = 4
-)
+spatialRF::plot_response_curves(model=model.spatial.repeat, quantiles = c(0.5, 0.975, 0.025), ncol = 3)
 
-# comparing spatial and non-spatial models stochastically
-comparison <- spatialRF::rf_compare(
-  models = list(
-    'non-spatial' = model.non.spatial,
-    'spatial' = model.spatial
-  ),
+
+#########################
+## tuned spatial model ##
+## stochastic          ##
+#########################
+
+# increase memory to max
+mem.maxVSize(v = Inf)
+
+# creating and registering the cluster
+local.cluster <- parallel::makeCluster(
+  parallel::detectCores() - 1,
+  type = "PSOCK"
+)
+doParallel::registerDoParallel(cl = local.cluster)
+
+# redefine distance thresholds vector (shortened for reduced processing time)
+distance.thresholds2 <- seq(from=1e5, to=5e5, by=5e4)
+
+  model.tuned <- spatialRF::rf_spatial(
+  data = HgDat,
+  dependent.variable.name = dependent.variable.name,
+  predictor.variable.names = predictor.variable.names,
+  distance.matrix = distance.matrix,
+  distance.thresholds = distance.thresholds2,
   xy = xy,
-  repetitions = 30,
-  training.fraction = 0.8,
-  metrics = "r.squared"
+  cluster = local.cluster,
+  scaled.importance=T,
+  method = c("mem.moran.sequential"),
+  max.spatial.predictors = 40, # main spatial predictors only
+  ranger.arguments=list(
+    num.trees=500,
+    mtry=1,
+    min.node.size=40)
+) %>%
+  rf_evaluate() %>%
+  rf_repeat(repetitions = 250)
+
+# stopping the cluster
+parallel::stopCluster(cl = local.cluster)
+
+# optimisation plot
+p <- spatialRF::plot_optimization(model.tuned)
+
+# importance
+spatialRF::plot_importance(
+  model.tuned, 
+  verbose = FALSE
 )
 
-x <- comparison$comparison.df %>% 
-  dplyr::group_by(model, metric) %>% 
-  dplyr::summarise(value = round(median(value), 3)) %>% 
-  dplyr::arrange(metric) %>% 
-  as.data.frame()
-colnames(x) <- c("Model", "Metric", "Median")
+# variable importance
+stochSpatTunedRFvarImp <- spatialRF::plot_importance(
+  model.tuned, 
+  verbose = FALSE
+)
+stochSpatTunedRFvarImp
+str(stochSpatTunedRFvarImp)
+stochSpatTunedRFvarImp.dat <- stochSpatTunedRFvarImp$data
+
+viXvar.stats <- stochSpatTunedRFvarImp.dat %>%
+  group_by(variable) %>%
+  summarise(
+    mean = mean(importance, na.rm = TRUE),
+    median = median(importance, na.rm = TRUE), 
+    var = var(importance, na.rm = TRUE),
+    sd = sd(importance, na.rm = TRUE),
+    se = sd/sqrt(n()),
+    upper = quantile(importance, probs=0.975, na.rm = TRUE),
+    lower = quantile(importance, probs=0.025, na.rm = TRUE),
+    n = n()
+  )
+viXvar.stats
+
+# performance
+spatialRF::print_performance(model.tuned)
+model.tuned$importance$per.variable$variable
+
+# spatial predictors
+spatial.predictors <- spatialRF::get_spatial_predictors(model.tuned)
+class(spatial.predictors)
+spatpred.names <- colnames(spatial.predictors)
+Nspatpreds <- length(spatpred.names)
+Nspatpreds
+
+pr <- data.frame(spatial.predictors, HgDat[, c("x", "y")])
+head(pr)
+
 kableExtra::kbl(
-  x,
+  head(model.tuned$importance$per.variable, n = 10),
   format = "html"
 ) %>%
   kableExtra::kable_paper("hover", full_width = F)
 
+# plot top 4 spatial predictors
+p1 <- ggplot2::ggplot() +
+  ggplot2::geom_sf(data = aus.sf, fill = "white") +
+  ggplot2::geom_point(
+    data = pr,
+    ggplot2::aes(
+      x = x,
+      y = y,
+      color = spatial_predictor_100000_27	
+    ),
+    size = 2.5
+  ) +
+  ggplot2::scale_color_viridis_c(option = "F") +
+  ggplot2::theme_bw() +
+  ggplot2::labs(color = "eigenvalue") +
+  ggplot2::scale_x_continuous(limits = c(112, 155)) +
+  ggplot2::scale_y_continuous(limits = c(-45, -10))  +
+  ggplot2::ggtitle("spatial_predictor_100000_27	") + 
+  ggplot2::theme(legend.position = "bottom")+ 
+  ggplot2::xlab("longitude") + 
+  ggplot2::ylab("latitude")
+
+p2 <- ggplot2::ggplot() +
+  ggplot2::geom_sf(data = aus.sf, fill = "white") +
+  ggplot2::geom_point(
+    data = pr,
+    ggplot2::aes(
+      x = x,
+      y = y,
+      color = spatial_predictor_100000_18
+    ),
+    size = 2.5
+  ) +
+  ggplot2::scale_color_viridis_c(option = "F") +
+  ggplot2::theme_bw() +
+  ggplot2::labs(color = "eigenvalue") +
+  ggplot2::scale_x_continuous(limits = c(112, 155)) +
+  ggplot2::scale_y_continuous(limits = c(-45, -10))  +
+  ggplot2::ggtitle("spatial_predictor_100000_18") + 
+  ggplot2::theme(legend.position = "bottom")+ 
+  ggplot2::xlab("longitude") + 
+  ggplot2::ylab("latitude")
+
+p3 <- ggplot2::ggplot() +
+  ggplot2::geom_sf(data = aus.sf, fill = "white") +
+  ggplot2::geom_point(
+    data = pr,
+    ggplot2::aes(
+      x = x,
+      y = y,
+      color = spatial_predictor_100000_29	
+    ),
+    size = 2.5
+  ) +
+  ggplot2::scale_color_viridis_c(option = "F") +
+  ggplot2::theme_bw() +
+  ggplot2::labs(color = "eigenvalue") +
+  ggplot2::scale_x_continuous(limits = c(112, 155)) +
+  ggplot2::scale_y_continuous(limits = c(-45, -10))  +
+  ggplot2::ggtitle("spatial_predictor_100000_29	") + 
+  ggplot2::theme(legend.position = "bottom")+ 
+  ggplot2::xlab("longitude") + 
+  ggplot2::ylab("latitude")
+
+p4 <- ggplot2::ggplot() +
+  ggplot2::geom_sf(data = aus.sf, fill = "white") +
+  ggplot2::geom_point(
+    data = pr,
+    ggplot2::aes(
+      x = x,
+      y = y,
+      color = spatial_predictor_100000_2
+    ),
+    size = 2.5
+  ) +
+  ggplot2::scale_color_viridis_c(option = "F") +
+  ggplot2::theme_bw() +
+  ggplot2::labs(color = "eigenvalue") +
+  ggplot2::scale_x_continuous(limits = c(112, 155)) +
+  ggplot2::scale_y_continuous(limits = c(-45, -10))  +
+  ggplot2::ggtitle("spatial_predictor_100000_2") + 
+  ggplot2::theme(legend.position = "bottom")+ 
+  ggplot2::xlab("longitude") + 
+  ggplot2::ylab("latitude")
+
+(p1 + p2) / (p3 + p4)
+
+
+# response curves
+respCurvRF <- spatialRF::plot_response_curves(model=model.tuned, quantiles = c(0.5), ncol = 3)
+str(respCurvRF[[1]])
+
+# soil N
+respCurvRF[[1]]$labels$x
+soilNrespCurvRF <- respCurvRF[[1]]
+str(soilNrespCurvRF)
+
+table(soilNrespCurvRF$layers[[1]]$data$id)
+
+soilNpredRF.dat <- data.frame(iter=soilNrespCurvRF$layers[[1]]$data$id, 
+           soilN=soilNrespCurvRF$layers[[1]]$data$soilN,
+           Hg=soilNrespCurvRF$layers[[1]]$data$Hg,
+           quantile=soilNrespCurvRF$layers[[1]]$data$quantile)
+head(soilNpredRF.dat)
+soilNpredRFq.5.dat <- subset(soilNpredRF.dat, quantile==0.5)
+dim(soilNpredRFq.5.dat)
+
+soilNpredRF.5Xiter.stats <- soilNpredRFq.5.dat %>%
+  group_by(iter) %>%
+  summarise(
+    x = mean(soilN, na.rm = TRUE),
+    meany = mean(Hg, na.rm = TRUE),
+    uppery = quantile(Hg, probs=0.975, na.rm = TRUE),
+    lowery = quantile(Hg, probs=0.025, na.rm = TRUE),
+  )
+soilNpredRF.5Xiter.stats
+range(soilNpredRF.5Xiter.stats$x, na.rm=T)
+c(min(soilNpredRF.5Xiter.stats$lowery, na.rm=T), max(soilNpredRF.5Xiter.stats$uppery, na.rm=T))
+
+# Prescott
+respCurvRF[[2]]$labels$x
+PrescottrespCurvRF <- respCurvRF[[2]]
+str(PrescottrespCurvRF)
+
+table(PrescottrespCurvRF$layers[[1]]$data$id)
+
+PrescottpredRF.dat <- data.frame(iter=PrescottrespCurvRF$layers[[1]]$data$id, 
+                              Prescott=PrescottrespCurvRF$layers[[1]]$data$Prescott,
+                              Hg=PrescottrespCurvRF$layers[[1]]$data$Hg,
+                              quantile=PrescottrespCurvRF$layers[[1]]$data$quantile)
+head(PrescottpredRF.dat)
+PrescottpredRFq.5.dat <- subset(PrescottpredRF.dat, quantile==0.5)
+dim(PrescottpredRFq.5.dat)
+
+PrescottpredRF.5Xiter.stats <- PrescottpredRFq.5.dat %>%
+  group_by(iter) %>%
+  summarise(
+    x = mean(Prescott, na.rm = TRUE),
+    meany = mean(Hg, na.rm = TRUE),
+    uppery = quantile(Hg, probs=0.975, na.rm = TRUE),
+    lowery = quantile(Hg, probs=0.025, na.rm = TRUE),
+  )
+PrescottpredRF.5Xiter.stats
+range(PrescottpredRF.5Xiter.stats$x, na.rm=T)
+c(min(PrescottpredRF.5Xiter.stats$lowery, na.rm=T), max(PrescottpredRF.5Xiter.stats$uppery, na.rm=T))
+
+# LAI
+respCurvRF[[3]]$labels$x
+lairespCurvRF <- respCurvRF[[3]]
+str(lairespCurvRF)
+
+table(lairespCurvRF$layers[[1]]$data$id)
+
+laipredRF.dat <- data.frame(iter=lairespCurvRF$layers[[1]]$data$id, 
+                                 lai=lairespCurvRF$layers[[1]]$data$lai,
+                                 Hg=lairespCurvRF$layers[[1]]$data$Hg,
+                                 quantile=lairespCurvRF$layers[[1]]$data$quantile)
+head(laipredRF.dat)
+laipredRFq.5.dat <- subset(laipredRF.dat, quantile==0.5)
+dim(laipredRFq.5.dat)
+
+laipredRF.5Xiter.stats <- laipredRFq.5.dat %>%
+  group_by(iter) %>%
+  summarise(
+    x = mean(lai, na.rm = TRUE),
+    meany = mean(Hg, na.rm = TRUE),
+    uppery = quantile(Hg, probs=0.975, na.rm = TRUE),
+    lowery = quantile(Hg, probs=0.025, na.rm = TRUE),
+  )
+laipredRF.5Xiter.stats
+range(laipredRF.5Xiter.stats$x, na.rm=T)
+c(min(laipredRF.5Xiter.stats$lowery, na.rm=T), max(laipredRF.5Xiter.stats$uppery, na.rm=T))
+
+# soil P
+respCurvRF[[4]]$labels$x
+soilPrespCurvRF <- respCurvRF[[4]]
+str(soilPrespCurvRF)
+
+table(soilPrespCurvRF$layers[[1]]$data$id)
+
+soilPpredRF.dat <- data.frame(iter=soilPrespCurvRF$layers[[1]]$data$id, 
+                            soilP=soilPrespCurvRF$layers[[1]]$data$soilP,
+                            Hg=soilPrespCurvRF$layers[[1]]$data$Hg,
+                            quantile=soilPrespCurvRF$layers[[1]]$data$quantile)
+head(soilPpredRF.dat)
+soilPpredRFq.5.dat <- subset(soilPpredRF.dat, quantile==0.5)
+dim(soilPpredRFq.5.dat)
+
+soilPpredRF.5Xiter.stats <- soilPpredRFq.5.dat %>%
+  group_by(iter) %>%
+  summarise(
+    x = mean(soilP, na.rm = TRUE),
+    meany = mean(Hg, na.rm = TRUE),
+    uppery = quantile(Hg, probs=0.975, na.rm = TRUE),
+    lowery = quantile(Hg, probs=0.025, na.rm = TRUE),
+  )
+soilPpredRF.5Xiter.stats
+range(soilPpredRF.5Xiter.stats$x, na.rm=T)
+c(min(soilPpredRF.5Xiter.stats$lowery, na.rm=T), max(soilPpredRF.5Xiter.stats$uppery, na.rm=T))
