@@ -28,6 +28,7 @@ Professor <a href="https://globalecologyflinders.com/people">Corey J. A. Bradsha
  
 ### <a href="data/spatial">Spatial</a>
 Most of these files are too large to store in this repository directly, so in most cases the links refer to the original repository URLs where you can download the datasets.<br>
+#### Base
 - <em><a href="data/spatial/aus.zip">aus.shp</a></em>: Australia boundary shapefile (zipped)
 - <em><a href="https://files.worldwildlife.org/wwfcmsprod/files/Publication/file/6kcchn7e3u_official_teow.zip">wwf_terr_ecos.shp</a></em>: WWF ecoregions shapefile (download zipped file from original site)
 - <em><a href="https://d28rz98at9flks.cloudfront.net/74619/74619_1M_shapefiles.zip">GeologicUnitPolygons1M.shp</a></em>: 1:1,000,000 geological unit polygon shapefile (download zipped file from original site)
