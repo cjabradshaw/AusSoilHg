@@ -418,7 +418,7 @@ length(field.dupl2.vec)
 
 
 ## Hg dataset
-hg.dat <- read.csv("hg.csv", header = T)
+hg.dat <- read.csv("hgTSID.csv", header = T)
 head(hg.dat)
 
 
