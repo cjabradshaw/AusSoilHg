@@ -11,7 +11,7 @@ Professor <a href="https://globalecologyflinders.com/people">Corey J. A. Bradsha
 - Adjunct Professor <a href="https://scholar.google.com.au/citations?user=O3mHBygAAAAJ&hl=en">Patrice de Caritat</a>, Curtin University
 - Professor <a href="https://researchportalplus.anu.edu.au/en/persons/simon-haberle">Simon Haberle</a>, Australian National University
 - <a href="mailto:James.Taylor3@anu.edu.au">James Taylor</a>, Australian National University
-- Olha Furman, Department of Climate Change, Energy, the Environment and Water, Commonwealth of Australia
+- Dr <a href="mailto:Olha.Furman@dcceew.gov.au">Olha Furman</a>, Department of Climate Change, Energy, the Environment and Water, Commonwealth of Australia
 
 ## Aims
 - identify external and indirect determinants of mercury (Hg)
