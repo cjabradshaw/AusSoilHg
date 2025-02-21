@@ -23,6 +23,7 @@ library(gstat) # for geostatistical modelling
 library(kableExtra) # tabulation
 library(ncdf4) # opening NetCDF files
 library(patchwork) # multiplot layouts
+library(performance) # model diagnostics
 library(pdp) # partial dependence plots
 library(randomForest) # random forest modelling
 library(randomForestExplainer)
@@ -30,6 +31,7 @@ library(raster) # raster data handling
 library(rnaturalearth) # natural Earth map data
 library(rnaturalearthdata) # vector map data
 library(sf) # sf objects
+library(sjPlot) # model diagnostics
 library(sp) # methods for spatial data
 library(spatialRF) # spatial regression with random forest
 library(spatstat) # analysis of spatial point patterns
@@ -1885,6 +1887,1023 @@ for (v in 1:topNvars) {
 (plt1 + plt2 + plt3) / (plt4 + plt5 + plt6) / (plt7 + plt8 + plt9)
 
 
+
+##############################################################
+## resampled for > min distance to factor-level differences ##
+##############################################################
+
+## functions
+# Akaike's information criterion corrected for sample size
+AICc <- function(...) {
+  models <- list(...)
+  num.mod <- length(models)
+  AICcs <- numeric(num.mod)
+  ns <- numeric(num.mod)
+  ks <- numeric(num.mod)
+  AICc.vec <- rep(0,num.mod)
+  for (i in 1:num.mod) {
+    if (length(models[[i]]$df.residual) == 0) n <- models[[i]]$dims$N else n <- length(models[[i]]$residuals)
+    if (length(models[[i]]$df.residual) == 0) k <- sum(models[[i]]$dims$ncol) else k <- (length(models[[i]]$coeff))+1
+    AICcs[i] <- (-2*logLik(models[[i]])) + ((2*k*n)/(n-k-1))
+    ns[i] <- n
+    ks[i] <- k
+    AICc.vec[i] <- AICcs[i]
+  }
+  return(AICc.vec)
+}
+
+# information criterion transformations
+delta.IC <- function(x) x - min(x) ## where x is a vector of an IC
+weight.IC <- function(x) (exp(-0.5*x))/sum(exp(-0.5*x)) ## Where x is a vector of dIC
+
+# whether a range contains zero
+contains_zero_sign <- function(x_min, x_max) {
+  return(sign(x_min) * sign(x_max) <= 0)
+}
+
+# reformulate test data frame
+colnames(TOS.dat)
+TOS.cl.test <- data.frame(SITEID=TOS.dat$SITEID, LAT=TOS.dat$LAT.x, LON=TOS.dat$LON.x, state=TOS.dat$STATE,
+                          lHg=log10(TOS.dat$HgCOMP), lucat=TOS.dat$lucat, landuse=TOS.dat$landuse,
+                          biome=TOS.dat$biome, geol=TOS.dat$lithgrp)
+head(TOS.cl.test)
+
+TOS.lm <- na.omit(TOS.cl.test)
+dim(TOS.lm)
+head(TOS.lm)
+
+TOS.lm.coords <- as.data.frame(TOS.lm[,c("LON","LAT")])
+dim(TOS.lm.coords)
+head(TOS.lm.coords)
+TOS.lm.coords.mat <- as.matrix(TOS.lm.coords)
+colnames(TOS.lm.coords.mat) <- c("x","y")
+
+# haversine matrix
+TOS.lm_haversine_matrix <- distm(
+  x = TOS.lm.coords,
+  fun = distHaversine
+)
+dim(TOS.lm_haversine_matrix)
+range(TOS.lm_haversine_matrix)
+
+min.dist <- 175000 # compromise between reducing spatial autocorrelation & sufficient sample size
+
+# loop controls
+iter <- 1000
+itdiv <- iter/10
+
+## state
+table(TOS.ran.subset$state)
+
+table(TOS.ran.subset$state)
+HgXstate.stats.ran <- TOS.ran.subset %>%
+  group_by(state) %>%
+  summarise(
+    mean = mean(lHg, na.rm = TRUE),
+    median = median(lHg, na.rm = TRUE), 
+    var = var(lHg, na.rm = TRUE),
+    sd = sd(lHg, na.rm = TRUE),
+    se = sd/sqrt(n()),
+    upper = quantile(lHg, probs=0.975, na.rm = TRUE),
+    lower = quantile(lHg, probs=0.025, na.rm = TRUE),
+    n = n()
+  )
+HgXstate.stats.ran
+na.omit(HgXstate.stats.ran)
+
+# resampling loop                             
+# storage matrix
+table(TOS.lm$state)
+nlevels <- length(table(TOS.lm$state))
+stor.mat <- matrix(data=NA, nrow=iter, ncol=2+2*nlevels)
+statedir.lab <- paste("state",attr(table(TOS.lm$state), "names"),"dir",sep="")
+colnames(stor.mat) <- c("ER", "nonzerosum",
+                        paste("state",attr(table(TOS.lm$state), "names"),sep=""),statedir.lab)
+head(stor.mat)
+
+for (i in 1:iter) {
+  # generate random coords
+  coords.ran <- select_distant_points(df = TOS.lm.coords, min_dist = min.dist,
+                                      dist_matrix = TOS.lm_haversine_matrix, x_col = "LON", y_col = "LAT")
+  
+  # subset random points for data summaries
+  TOS.ran.subset <- na.omit(TOS.lm[as.numeric(row.names(coords.ran)), ])
+  
+  # fit linear models
+  mod1 <- lm(lHg ~ state, data=TOS.ran.subset) # class level model
+  mod.null <- lm(lHg ~ 1, data=TOS.ran.subset) # null model
+  
+  # coefficient boundaries
+  pmmod1 <- plot_model(mod1)
+  pmmod1.coef <- data.frame(state=as.character(pmmod1[[1]]$term), lo=pmmod1[[1]]$conf.low,
+                            up=pmmod1[[1]]$conf.high)
+  
+  # determine if zero is in the confidence interval
+  pmmod1.coef$nonzero <- ifelse(contains_zero_sign(pmmod1.coef$lo, pmmod1.coef$up)==F, 1, 0)
+  
+  # determine if negative or positive relationship
+  pmmod1.coef$dir <- ifelse(sign(pmmod1.coef$lo) == -1 & sign(pmmod1.coef$up) == -1, -1, 0)
+  pmmod1.coef$dir <- ifelse(sign(pmmod1.coef$lo) == 1 & sign(pmmod1.coef$up) == 1, 1, pmmod1.coef$dir)
+    
+  # how many variables are non-zero?
+  stor.mat[i,"nonzerosum"] <- sum(pmmod1.coef$nonzero)
+  
+  # which category levels are non-zero?
+  nzstates <- pmmod1.coef[which(pmmod1.coef$nonzero==1),]$state
+  stor.mat[i, which(colnames(stor.mat) %in% nzstates)] <- 1
+  
+  # for non-zeros, what is the direction?
+  nzstatesdir <- paste(nzstates,"dir",sep="")
+  stor.mat[i, which(colnames(stor.mat) %in% nzstatesdir)] <- pmmod1.coef$dir[which(pmmod1.coef$dir != 0)]
+  
+  # AICc model comparison
+  wAICc <- weight.IC(delta.IC(c(AICc(mod1),AICc(mod.null))))
+
+  # store evidence ratio
+  stor.mat[i,"ER"] <- wAICc[1]/wAICc[2]
+  
+  if (i %% itdiv == 0) print(paste("iter = ", i, sep=""))
+}
+
+head(stor.mat)
+state.labs <- c("NSW","NT","QLD","SA","TAS","VIC","WA")
+lennzNSW <- length(table(stor.mat[,"stateNSW"]))
+lennzNT <- length(table(stor.mat[,"stateNT"]))
+lennzQLD <- length(table(stor.mat[,"stateQLD"]))
+lennzSA <- length(table(stor.mat[,"stateSA"]))
+lennzTAS <- length(table(stor.mat[,"stateTAS"]))
+lennzVIC <- length(table(stor.mat[,"stateVIC"]))
+lennzWA <- length(table(stor.mat[,"stateWA"]))
+
+
+nzrslts <- c(ifelse(lennzNSW==1, as.numeric(table(stor.mat[,"stateNSW"])), 0),
+  ifelse(lennzNT==1, as.numeric(table(stor.mat[,"stateNT"])), 0),
+  ifelse(lennzQLD==1, as.numeric(table(stor.mat[,"stateQLD"])), 0),
+  ifelse(lennzSA==1, as.numeric(table(stor.mat[,"stateSA"])), 0),
+  ifelse(lennzTAS==1, as.numeric(table(stor.mat[,"stateTAS"])), 0),
+  ifelse(lennzVIC==1, as.numeric(table(stor.mat[,"stateVIC"])), 0),
+  ifelse(lennzWA==1, as.numeric(table(stor.mat[,"stateWA"])), 0))
+
+
+dirNSWtab <- table(stor.mat[,"stateNSWdir"])
+dirNTtab <- table(stor.mat[,"stateNTdir"])
+dirQLDtab <- table(stor.mat[,"stateQLDdir"])
+dirSAtab <- table(stor.mat[,"stateSAdir"])
+dirTAStab <- table(stor.mat[,"stateTASdir"])
+dirVICtab <- table(stor.mat[,"stateVICdir"])
+dirWAtab <- table(stor.mat[,"stateWAdir"])
+
+dirlenNSW <- length(dirNSWtab)
+dirlenNT <- length(dirNTtab)
+dirlenQLD <- length(dirQLDtab)
+dirlenSA <- length(dirSAtab)
+dirlenTAS <- length(dirTAStab)
+dirlenVIC <- length(dirVICtab)
+dirlenWA <- length(dirWAtab)
+
+if (dirlenNSW == 0) {
+  NSWpos <- 0
+  NSWneg <- 0
+} else if (dirlenNSW == 1 & as.numeric(attr(dirNSWtab,"names")[1]) == 1) {
+  NSWpos <- as.numeric(dirNSWtab)[1]
+  NSWneg <- 0
+} else if (dirlenNSW == 1 & as.numeric(attr(dirNSWtab,"names")[1]) == -1) {
+  NSWpos <- 0
+  NSWneg <- as.numeric(dirNSWtab)[1]
+} else if (dirlenNSW == 2) {
+  NSWneg <- as.numeric(dirNSWtab)[1]
+  NSWpos <- as.numeric(dirNSWtab)[2]
+} else {
+  NSWpos <- 0
+  NSWneg <- 0
+}
+
+if (dirlenNT == 0) {
+  NTpos <- 0
+  NTneg <- 0
+  } else if (dirlenNT == 1 & as.numeric(attr(dirNTtab,"names")[1]) == 1) {
+    NTpos <- as.numeric(dirNTtab)[1]
+    NTneg <- 0
+  } else if (dirlenNT == 1 & as.numeric(attr(dirNTtab,"names")[1]) == -1) {
+    NTpos <- 0
+    NTneg <- as.numeric(dirNTtab)[1]
+  } else if (dirlenNT == 2) {
+    NTneg <- as.numeric(dirNTtab)[1]
+    NTpos <- as.numeric(dirNTtab)[2]
+  } else {
+    NTpos <- 0
+    NTneg <- 0
+  }
+
+if (dirlenQLD == 0) {
+  QLDpos <- 0
+  QLDneg <- 0
+  } else if (dirlenQLD == 1 & as.numeric(attr(dirQLDtab,"names")[1]) == 1) {
+    QLDpos <- as.numeric(dirQLDtab)[1]
+    QLDneg <- 0
+  } else if (dirlenQLD == 1 & as.numeric(attr(dirQLDtab,"names")[1]) == -1) {
+    QLDpos <- 0
+    QLDneg <- as.numeric(dirQLDtab)[1]
+  } else if (dirlenQLD == 2) {
+    QLDneg <- as.numeric(dirQLDtab)[1]
+    QLDpos <- as.numeric(dirQLDtab)[2]
+  } else {
+    QLDpos <- 0
+    QLDneg <- 0
+  }
+
+if (dirlenSA == 0) {
+  SApos <- 0
+  SAneg <- 0
+  } else if (dirlenSA == 1 & as.numeric(attr(dirSAtab,"names")[1]) == 1) {
+    SApos <- as.numeric(dirSAtab)[1]
+    SAneg <- 0
+  } else if (dirlenSA == 1 & as.numeric(attr(dirSAtab,"names")[1]) == -1) {
+    SApos <- 0
+    SAneg <- as.numeric(dirSAtab)[1]
+  } else if (dirlenSA == 2) {
+    SAneg <- as.numeric(dirSAtab)[1]
+    SApos <- as.numeric(dirSAtab)[2]
+  } else {
+    SApos <- 0
+    SAneg <- 0
+  }
+
+if (dirlenTAS == 0) {
+  TASpos <- 0
+  TASneg <- 0
+  } else if (dirlenTAS == 1 & as.numeric(attr(dirTAStab,"names")[1]) == 1) {
+    TASpos <- as.numeric(dirTAStab)[1]
+    TASneg <- 0
+  } else if (dirlenTAS == 1 & as.numeric(attr(dirTAStab,"names")[1]) == -1) {
+    TASpos <- 0
+    TASneg <- as.numeric(dirTAStab)[1]
+  } else if (dirlenTAS == 2) {
+    TASneg <- as.numeric(dirTAStab)[1]
+    TASpos <- as.numeric(dirTAStab)[2]
+  } else {
+    TASpos <- 0
+    TASneg <- 0
+  }
+
+if (dirlenVIC == 0) {
+  VICpos <- 0
+  VICneg <- 0
+  } else if (dirlenVIC == 1 & as.numeric(attr(dirVICtab,"names")[1]) == 1) {
+    VICpos <- as.numeric(dirVICtab)[1]
+    VICneg <- 0
+  } else if (dirlenVIC == 1 & as.numeric(attr(dirVICtab,"names")[1]) == -1) {
+    VICpos <- 0
+    VICneg <- as.numeric(dirVICtab)[1]
+  } else if (dirlenVIC == 2) {
+    VICneg <- as.numeric(dirVICtab)[1]
+    VICpos <- as.numeric(dirVICtab)[2]
+  } else {
+    VICpos <- 0
+    VICneg <- 0
+  }
+
+if (dirlenWA == 0) {
+  WApos <- 0
+  WAneg <- 0
+  } else if (dirlenWA == 1 & as.numeric(attr(dirWAtab,"names")[1]) == 1) {
+    WApos <- as.numeric(dirWAtab)[1]
+    WAneg <- 0
+  } else if (dirlenWA == 1 & as.numeric(attr(dirWAtab,"names")[1]) == -1) {
+    WApos <- 0
+    WAneg <- as.numeric(dirWAtab)[1]
+  } else if (dirlenWA == 2) {
+    WAneg <- as.numeric(dirWAtab)[1]
+    WApos <- as.numeric(dirWAtab)[2]
+  } else {
+    WApos <- 0
+    WAneg <- 0
+  }
+
+nznegdirrslts <- c(NSWneg, NTneg, QLDneg, SAneg, TASneg, VICneg, WAneg)
+nzposdirrslts <- c(NSWpos, NTpos, QLDpos, SApos, TASpos, VICpos, WApos)
+
+results.out <- data.frame(state=state.labs, nonzero=nzrslts/iter, negdir=nznegdirrslts/iter,
+                          posdir=nzposdirrslts/iter)
+results.out
+
+# evidence ratios
+10^median(log10(stor.mat[,"ER"]))
+quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
+10^quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
+quantile(log10(stor.mat[,"ER"]), probs=c(0.1,0.9))
+10^quantile(log10(stor.mat[,"ER"]), probs=c(0.1,0.9))
+
+hist(log10(stor.mat[,"ER"]), main="", xlab="log10 ER")
+abline(v=median(log10(stor.mat[,"ER"])), col="red", lwd=2, lty=2)
+abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.1), col="blue", lwd=2, lty=2)
+abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.9), col="blue", lwd=2, lty=2)
+
+
+
+## by biome
+table(TOS.ran.subset$biome)
+
+table(TOS.ran.subset$biome)
+HgXbiome.stats.ran <- TOS.ran.subset %>%
+  group_by(biome) %>%
+  summarise(
+    mean = mean(lHg, na.rm = TRUE),
+    median = median(lHg, na.rm = TRUE), 
+    var = var(lHg, na.rm = TRUE),
+    sd = sd(lHg, na.rm = TRUE),
+    se = sd/sqrt(n()),
+    upper = quantile(lHg, probs=0.975, na.rm = TRUE),
+    lower = quantile(lHg, probs=0.025, na.rm = TRUE),
+    n = n()
+  )
+HgXbiome.stats.ran
+na.omit(HgXbiome.stats.ran)
+
+# resampling loop
+# storage matrix
+table(TOS.lm$biome)
+nlevels <- length(table(TOS.lm$biome))
+stor.mat <- matrix(data=NA, nrow=iter, ncol=2+2*nlevels)
+biomedir.lab <- paste("biome",attr(table(TOS.lm$biome), "names"),"dir",sep="")
+colnames(stor.mat) <- c("ER", "nonzerosum",
+                        paste("biome",attr(table(TOS.lm$biome), "names"),sep=""),biomedir.lab)
+head(stor.mat)
+
+for (i in 1:iter) {
+  # generate random coords
+  coords.ran <- select_distant_points(df = TOS.lm.coords, min_dist = min.dist,
+                                      dist_matrix = TOS.lm_haversine_matrix, x_col = "LON", y_col = "LAT")
+  
+  # subset random points for data summaries
+  TOS.ran.subset <- na.omit(TOS.lm[as.numeric(row.names(coords.ran)), ])
+  
+  # fit linear models
+  mod1 <- lm(lHg ~ biome, data=TOS.ran.subset) # class level model
+  mod.null <- lm(lHg ~ 1, data=TOS.ran.subset) # null model
+  
+  # coefficient boundaries
+  pmmod1 <- plot_model(mod1)
+  pmmod1.coef <- data.frame(biome=as.character(pmmod1[[1]]$term), lo=pmmod1[[1]]$conf.low,
+                            up=pmmod1[[1]]$conf.high)
+  
+  # determine if zero is in the confidence interval
+  pmmod1.coef$nonzero <- ifelse(contains_zero_sign(pmmod1.coef$lo, pmmod1.coef$up)==F, 1, 0)
+  
+  # determine if negative or positive relationship
+  pmmod1.coef$dir <- ifelse(sign(pmmod1.coef$lo) == -1 & sign(pmmod1.coef$up) == -1, -1, 0)
+  pmmod1.coef$dir <- ifelse(sign(pmmod1.coef$lo) == 1 & sign(pmmod1.coef$up) == 1, 1, pmmod1.coef$dir)
+  
+  # how many variables are non-zero?
+  stor.mat[i,"nonzerosum"] <- sum(pmmod1.coef$nonzero)
+  
+  # which category levels are non-zero?
+  nzbiomes <- pmmod1.coef[which(pmmod1.coef$nonzero==1),]$biome
+  stor.mat[i, which(colnames(stor.mat) %in% nzbiomes)] <- 1
+  
+  # for non-zeros, what is the direction?
+  nzbiomessdir <- paste(nzbiomes,"dir",sep="")
+  stor.mat[i, which(colnames(stor.mat) %in% nzbiomessdir)] <- pmmod1.coef$dir[which(pmmod1.coef$dir != 0)]
+  
+  # AICc model comparison
+  wAICc <- weight.IC(delta.IC(c(AICc(mod1),AICc(mod.null))))
+  
+  # store evidence ratio
+  stor.mat[i,"ER"] <- wAICc[1]/wAICc[2]
+  
+  if (i %% itdiv == 0) print(paste("iter = ", i, sep=""))
+}
+
+head(stor.mat)
+biome.labs <- c("DXS","MFW","TBMF","TGSS","TSGSS","TSMBF")
+lennzDXS <- length(table(stor.mat[,"biomeDXS"]))
+lennzMFW <- length(table(stor.mat[,"biomeMFW"]))
+lennzTBMF <- length(table(stor.mat[,"biomeTBMF"]))
+lennzTGSS <- length(table(stor.mat[,"biomeTGSS"]))
+lennzTSGSS <- length(table(stor.mat[,"biomeTSGSS"]))
+lennzTSMBF <- length(table(stor.mat[,"biomeTSMBF"]))
+
+nzrslts <- c(ifelse(lennzDXS==1, as.numeric(table(stor.mat[,"biomeDXS"])), 0),
+             ifelse(lennzMFW==1, as.numeric(table(stor.mat[,"biomeMFW"])), 0),
+             ifelse(lennzTBMF==1, as.numeric(table(stor.mat[,"biomeTBMF"])), 0),
+             ifelse(lennzTGSS==1, as.numeric(table(stor.mat[,"biomeTGSS"])), 0),
+             ifelse(lennzTSGSS==1, as.numeric(table(stor.mat[,"biomeTSGSS"])), 0),
+             ifelse(lennzTSMBF==1, as.numeric(table(stor.mat[,"biomeTSMBF"])), 0))
+
+
+dirDXStab <- table(stor.mat[,"biomeDXS"])
+dirMFWtab <- table(stor.mat[,"biomeMFW"])
+dirTBMFtab <- table(stor.mat[,"biomeTBMF"])
+dirTGSStab <- table(stor.mat[,"biomeTGSS"])
+dirTSGSStab <- table(stor.mat[,"biomeTSGSS"])
+dirTSMBFtab <- table(stor.mat[,"biomeTSMBF"])
+
+dirlenDXS <- length(dirDXStab)
+dirlenMFW <- length(dirMFWtab)
+dirlenTBMF <- length(dirTBMFtab)
+dirlenTGSS <- length(dirTGSStab)
+dirlenTSGSS <- length(dirTSGSStab)
+dirlenTSMBF <- length(dirTSMBFtab)
+
+
+if (dirlenDXS == 0) {
+  DXSpos <- 0
+  DXSneg <- 0
+} else if (dirlenDXS == 1 & as.numeric(attr(dirDXStab,"names")[1]) == 1) {
+  DXSpos <- as.numeric(dirDXStab)[1]
+  DXSneg <- 0
+} else if (dirlenDXS == 1 & as.numeric(attr(dirDXStab,"names")[1]) == -1) {
+  DXSpos <- 0
+  DXSneg <- as.numeric(dirDXStab)[1]
+} else if (dirlenDXS == 2) {
+  DXSneg <- as.numeric(dirDXStab)[1]
+  DXSpos <- as.numeric(dirDXStab)[2]
+} else {
+  DXSpos <- 0
+  DXSneg <- 0
+}
+
+if (dirlenMFW == 0) {
+  MFWpos <- 0
+  MFWneg <- 0
+} else if (dirlenMFW == 1 & as.numeric(attr(dirMFWtab,"names")[1]) == 1) {
+  MFWpos <- as.numeric(dirMFWtab)[1]
+  MFWneg <- 0
+} else if (dirlenMFW == 1 & as.numeric(attr(dirMFWtab,"names")[1]) == -1) {
+  MFWpos <- 0
+  MFWneg <- as.numeric(dirMFWtab)[1]
+} else if (dirlenMFW == 2) {
+  MFWneg <- as.numeric(dirMFWtab)[1]
+  MFWpos <- as.numeric(dirMFWtab)[2]
+} else {
+  MFWpos <- 0
+  MFWneg <- 0
+}
+
+if (dirlenTBMF == 0) {
+  TBMFpos <- 0
+  TBMFneg <- 0
+} else if (dirlenTBMF == 1 & as.numeric(attr(dirTBMFtab,"names")[1]) == 1) {
+  TBMFpos <- as.numeric(dirTBMFtab)[1]
+  TBMFneg <- 0
+} else if (dirlenTBMF == 1 & as.numeric(attr(dirTBMFtab,"names")[1]) == -1) {
+  TBMFpos <- 0
+  TBMFneg <- as.numeric(dirTBMFtab)[1]
+} else if (dirlenTBMF == 2) {
+  TBMFneg <- as.numeric(dirTBMFtab)[1]
+  TBMFpos <- as.numeric(dirTBMFtab)[2]
+} else {
+  TBMFpos <- 0
+  TBMFneg <- 0
+}
+
+if (dirlenTGSS == 0) {
+  TGSSpos <- 0
+  TGSSneg <- 0
+} else if (dirlenTGSS == 1 & as.numeric(attr(dirTGSStab,"names")[1]) == 1) {
+  TGSSpos <- as.numeric(dirTGSStab)[1]
+  TGSSneg <- 0
+} else if (dirlenTGSS == 1 & as.numeric(attr(dirTGSStab,"names")[1]) == -1) {
+  TGSSpos <- 0
+  TGSSneg <- as.numeric(dirTGSStab)[1]
+} else if (dirlenTGSS == 2) {
+  TGSSneg <- as.numeric(dirTGSStab)[1]
+  TGSSpos <- as.numeric(dirTGSStab)[2]
+} else {
+  TGSSpos <- 0
+  TGSSneg <- 0
+}
+
+if (dirlenTSGSS == 0) {
+  TSGSSpos <- 0
+  TSGSSneg <- 0
+} else if (dirlenTSGSS == 1 & as.numeric(attr(dirTSGSStab,"names")[1]) == 1) {
+  TSGSSpos <- as.numeric(dirTSGSStab)[1]
+  TSGSSneg <- 0
+} else if (dirlenTSGSS == 1 & as.numeric(attr(dirTSGSStab,"names")[1]) == -1) {
+  TSGSSpos <- 0
+  TSGSSneg <- as.numeric(dirTSGSStab)[1]
+} else if (dirlenTSGSS == 2) {
+  TSGSSneg <- as.numeric(dirTSGSStab)[1]
+  TSGSSpos <- as.numeric(dirTSGSStab)[2]
+} else {
+  TSGSSpos <- 0
+  TSGSSneg <- 0
+}
+
+if (dirlenTSMBF == 0) {
+  TSMBFpos <- 0
+  TSMBFneg <- 0
+} else if (dirlenTSMBF == 1 & as.numeric(attr(dirTSMBFtab,"names")[1]) == 1) {
+  TSMBFpos <- as.numeric(dirTSMBFtab)[1]
+  TSMBFneg <- 0
+} else if (dirlenTSMBF == 1 & as.numeric(attr(dirTSMBFtab,"names")[1]) == -1) {
+  TSMBFpos <- 0
+  TSMBFneg <- as.numeric(dirTSMBFtab)[1]
+} else if (dirlenTSMBF == 2) {
+  TSMBFneg <- as.numeric(dirTSMBFtab)[1]
+  TSMBFpos <- as.numeric(dirTSMBFtab)[2]
+} else {
+  TSMBFpos <- 0
+  TSMBFneg <- 0
+}
+
+nznegdirrslts <- c(DXSneg, MFWneg, TBMFneg, TGSSneg, TSGSSneg, TSMBFneg)
+nzposdirrslts <- c(DXSpos, MFWpos, TBMFpos, TGSSpos, TSGSSpos, TSMBFpos)
+
+results.out <- data.frame(biome=biomedir.lab, nonzero=nzrslts/iter, negdir=nznegdirrslts/iter,
+                          posdir=nzposdirrslts/iter)
+results.out
+
+# evidence ratios
+10^median(log10(stor.mat[,"ER"]))
+quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
+10^quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
+quantile(log10(stor.mat[,"ER"]), probs=c(0.1,0.9))
+10^quantile(log10(stor.mat[,"ER"]), probs=c(0.1,0.9))
+
+hist(log10(stor.mat[,"ER"]), main="", xlab="log10 ER")
+abline(v=median(log10(stor.mat[,"ER"])), col="red", lwd=2, lty=2)
+abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.1), col="blue", lwd=2, lty=2)
+abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.9), col="blue", lwd=2, lty=2)
+
+
+
+## lithology
+table(TOS.ran.subset$geol)
+
+table(TOS.ran.subset$geol)
+HgXgeol.stats.ran <- TOS.ran.subset %>%
+  group_by(geol) %>%
+  summarise(
+    mean = mean(lHg, na.rm = TRUE),
+    median = median(lHg, na.rm = TRUE), 
+    var = var(lHg, na.rm = TRUE),
+    sd = sd(lHg, na.rm = TRUE),
+    se = sd/sqrt(n()),
+    upper = quantile(lHg, probs=0.975, na.rm = TRUE),
+    lower = quantile(lHg, probs=0.025, na.rm = TRUE),
+    n = n()
+  )
+HgXgeol.stats.ran
+na.omit(HgXgeol.stats.ran)
+
+# resampling loop
+# storage matrix
+table(TOS.lm$geol)
+nlevels <- length(table(TOS.lm$geol))
+stor.mat <- matrix(data=NA, nrow=iter, ncol=2+2*nlevels)
+geoldir.lab <- paste("geol",attr(table(TOS.lm$geol), "names"),"dir",sep="")
+colnames(stor.mat) <- c("ER", "nonzerosum",
+                        paste("geol",attr(table(TOS.lm$geol), "names"),sep=""),geoldir.lab)
+head(stor.mat)
+
+for (i in 1:iter) {
+  # generate random coords
+  coords.ran <- select_distant_points(df = TOS.lm.coords, min_dist = min.dist,
+                                      dist_matrix = TOS.lm_haversine_matrix, x_col = "LON", y_col = "LAT")
+  
+  # subset random points for data summaries
+  TOS.ran.subset <- na.omit(TOS.lm[as.numeric(row.names(coords.ran)), ])
+  
+  # fit linear models
+  mod1 <- lm(lHg ~ geol, data=TOS.ran.subset) # class level model
+  mod.null <- lm(lHg ~ 1, data=TOS.ran.subset) # null model
+  
+  # coefficient boundaries
+  pmmod1 <- plot_model(mod1)
+  pmmod1.coef <- data.frame(geol=as.character(pmmod1[[1]]$term), lo=pmmod1[[1]]$conf.low,
+                            up=pmmod1[[1]]$conf.high)
+  
+  # determine if zero is in the confidence interval
+  pmmod1.coef$nonzero <- ifelse(contains_zero_sign(pmmod1.coef$lo, pmmod1.coef$up)==F, 1, 0)
+  
+  # determine if negative or positive relationship
+  pmmod1.coef$dir <- ifelse(sign(pmmod1.coef$lo) == -1 & sign(pmmod1.coef$up) == -1, -1, 0)
+  pmmod1.coef$dir <- ifelse(sign(pmmod1.coef$lo) == 1 & sign(pmmod1.coef$up) == 1, 1, pmmod1.coef$dir)
+  
+  # how many variables are non-zero?
+  stor.mat[i,"nonzerosum"] <- sum(pmmod1.coef$nonzero)
+  
+  # which category levels are non-zero?
+  nzgeol <- pmmod1.coef[which(pmmod1.coef$nonzero==1),]$geol
+  stor.mat[i, which(colnames(stor.mat) %in% nzgeol)] <- 1
+  
+  # for non-zeros, what is the direction?
+  nzgeoldir <- paste(nzgeol,"dir",sep="")
+  stor.mat[i, which(colnames(stor.mat) %in% nzgeoldir)] <- pmmod1.coef$dir[which(pmmod1.coef$dir != 0)]
+  
+  # AICc model comparison
+  wAICc <- weight.IC(delta.IC(c(AICc(mod1),AICc(mod.null))))
+  
+  # store evidence ratio
+  stor.mat[i,"ER"] <- wAICc[1]/wAICc[2]
+  
+  if (i %% itdiv == 0) print(paste("iter = ", i, sep=""))
+}
+
+head(stor.mat)
+geol.labs <- c("CAR","FEL","INT","MAF","MET","OTH","SIL")
+lennzCAR <- length(table(stor.mat[,"geolCAR"]))
+lennzFEL <- length(table(stor.mat[,"geolFEL"]))
+lennzINT <- length(table(stor.mat[,"geolINT"]))
+lennzMAF <- length(table(stor.mat[,"geolMAF"]))
+lennzMET <- length(table(stor.mat[,"geolMET"]))
+lennzOTH <- length(table(stor.mat[,"geolOTH"]))
+lennzSIL <- length(table(stor.mat[,"geolSIL"]))
+
+nzrslts <- c(ifelse(lennzCAR==1, as.numeric(table(stor.mat[,"geolCAR"])), 0),
+             ifelse(lennzFEL==1, as.numeric(table(stor.mat[,"geolFEL"])), 0),
+             ifelse(lennzINT==1, as.numeric(table(stor.mat[,"geolINT"])), 0),
+             ifelse(lennzMAF==1, as.numeric(table(stor.mat[,"geolMAF"])), 0),
+             ifelse(lennzMET==1, as.numeric(table(stor.mat[,"geolMET"])), 0),
+             ifelse(lennzOTH==1, as.numeric(table(stor.mat[,"geolOTH"])), 0),
+             ifelse(lennzSIL==1, as.numeric(table(stor.mat[,"geolSIL"])), 0))
+
+dirCARtab <- table(stor.mat[,"geolCAR"])
+dirFELtab <- table(stor.mat[,"geolFEL"])
+dirINTtab <- table(stor.mat[,"geolINT"])
+dirMAFtab <- table(stor.mat[,"geolMAF"])
+dirMETtab <- table(stor.mat[,"geolMET"])
+dirOTHtab <- table(stor.mat[,"geolOTH"])
+dirSILtab <- table(stor.mat[,"geolSIL"])
+
+dirlenCAR <- length(dirCARtab)
+dirlenFEL <- length(dirFELtab)
+dirlenINT <- length(dirINTtab)
+dirlenMAF <- length(dirMAFtab)
+dirlenMET <- length(dirMETtab)
+dirlenOTH <- length(dirOTHtab)
+dirlenSIL <- length(dirSILtab)
+
+
+if (dirlenCAR == 0) {
+  CARpos <- 0
+  CARneg <- 0
+} else if (dirlenCAR == 1 & as.numeric(attr(dirCARtab,"names")[1]) == 1) {
+  CARpos <- as.numeric(dirCARtab)[1]
+  CARneg <- 0
+} else if (dirlenCAR == 1 & as.numeric(attr(dirCARtab,"names")[1]) == -1) {
+  CARpos <- 0
+  CARneg <- as.numeric(dirCARtab)[1]
+} else if (dirlenCAR == 2) {
+  CARneg <- as.numeric(dirCARtab)[1]
+  CARpos <- as.numeric(dirCARtab)[2]
+} else {
+  CARpos <- 0
+  CARneg <- 0
+}
+
+if (dirlenFEL == 0) {
+  FELpos <- 0
+  FELneg <- 0
+} else if (dirlenFEL == 1 & as.numeric(attr(dirFELtab,"names")[1]) == 1) {
+  FELpos <- as.numeric(dirFELtab)[1]
+  FELneg <- 0
+} else if (dirlenFEL == 1 & as.numeric(attr(dirFELtab,"names")[1]) == -1) {
+  FELpos <- 0
+  FELneg <- as.numeric(dirFELtab)[1]
+} else if (dirlenFEL == 2) {
+  FELneg <- as.numeric(dirFELtab)[1]
+  FELpos <- as.numeric(dirFELtab)[2]
+} else {
+  FELpos <- 0
+  FELneg <- 0
+}
+
+if (dirlenINT == 0) {
+  INTpos <- 0
+  INTneg <- 0
+} else if (dirlenINT == 1 & as.numeric(attr(dirINTtab,"names")[1]) == 1) {
+  INTpos <- as.numeric(dirINTtab)[1]
+  INTneg <- 0
+} else if (dirlenINT == 1 & as.numeric(attr(dirINTtab,"names")[1]) == -1) {
+  INTpos <- 0
+  INTneg <- as.numeric(dirINTtab)[1]
+} else if (dirlenINT == 2) {
+  INTneg <- as.numeric(dirINTtab)[1]
+  INTpos <- as.numeric(dirINTtab)[2]
+} else {
+  INTpos <- 0
+  INTneg <- 0
+}
+
+if (dirlenMAF == 0) {
+  MAFpos <- 0
+  MAFneg <- 0
+} else if (dirlenMAF == 1 & as.numeric(attr(dirMAFtab,"names")[1]) == 1) {
+  MAFpos <- as.numeric(dirMAFtab)[1]
+  MAFneg <- 0
+} else if (dirlenMAF == 1 & as.numeric(attr(dirMAFtab,"names")[1]) == -1) {
+  MAFpos <- 0
+  MAFneg <- as.numeric(dirMAFtab)[1]
+} else if (dirlenMAF == 2) {
+  MAFneg <- as.numeric(dirMAFtab)[1]
+  MAFpos <- as.numeric(dirMAFtab)[2]
+} else {
+  MAFpos <- 0
+  MAFneg <- 0
+}
+
+if (dirlenMET == 0) {
+  METpos <- 0
+  METneg <- 0
+} else if (dirlenMET == 1 & as.numeric(attr(dirMETtab,"names")[1]) == 1) {
+  METpos <- as.numeric(dirMETtab)[1]
+  METneg <- 0
+} else if (dirlenMET == 1 & as.numeric(attr(dirMETtab,"names")[1]) == -1) {
+  METpos <- 0
+  METneg <- as.numeric(dirMETtab)[1]
+} else if (dirlenMET == 2) {
+  METneg <- as.numeric(dirMETtab)[1]
+  METpos <- as.numeric(dirMETtab)[2]
+} else {
+  METpos <- 0
+  METneg <- 0
+}
+
+if (dirlenOTH == 0) {
+  OTHpos <- 0
+  OTHneg <- 0
+} else if (dirlenOTH == 1 & as.numeric(attr(dirOTHtab,"names")[1]) == 1) {
+  OTHpos <- as.numeric(dirOTHtab)[1]
+  OTHneg <- 0
+} else if (dirlenOTH == 1 & as.numeric(attr(dirOTHtab,"names")[1]) == -1) {
+  OTHpos <- 0
+  OTHneg <- as.numeric(dirOTHtab)[1]
+} else if (dirlenOTH == 2) {
+  OTHneg <- as.numeric(dirOTHtab)[1]
+  OTHpos <- as.numeric(dirOTHtab)[2]
+} else {
+  OTHpos <- 0
+  OTHneg <- 0
+}
+
+if (dirlenSIL == 0) {
+  SILpos <- 0
+  SILneg <- 0
+} else if (dirlenSIL == 1 & as.numeric(attr(dirSILtab,"names")[1]) == 1) {
+  SILpos <- as.numeric(dirSILtab)[1]
+  SILneg <- 0
+} else if (dirlenSIL == 1 & as.numeric(attr(dirSILtab,"names")[1]) == -1) {
+  SILpos <- 0
+  SILneg <- as.numeric(dirSILtab)[1]
+} else if (dirlenSIL == 2) {
+  SILneg <- as.numeric(dirSILtab)[1]
+  SILpos <- as.numeric(dirSILtab)[2]
+} else {
+  SILpos <- 0
+  SILneg <- 0
+}
+
+nznegdirrslts <- c(CARneg, FELneg, INTneg, MAFneg, METneg, OTHneg, SILneg)
+nzposdirrslts <- c(CARpos, FELpos, INTpos, MAFpos, METpos, OTHpos, SILpos)
+
+results.out <- data.frame(geol=geoldir.lab, nonzero=nzrslts/iter, negdir=nznegdirrslts/iter,
+                          posdir=nzposdirrslts/iter)
+results.out
+
+# evidence ratios
+10^median(log10(stor.mat[,"ER"]))
+quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
+10^quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
+quantile(log10(stor.mat[,"ER"]), probs=c(0.1,0.9))
+10^quantile(log10(stor.mat[,"ER"]), probs=c(0.1,0.9))
+
+hist(log10(stor.mat[,"ER"]), main="", xlab="log10 ER")
+abline(v=median(log10(stor.mat[,"ER"])), col="red", lwd=2, lty=2)
+abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.1), col="blue", lwd=2, lty=2)
+abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.9), col="blue", lwd=2, lty=2)
+
+
+
+## landuse
+table(TOS.ran.subset$landuse)
+
+table(TOS.ran.subset$landuse)
+HgXlanduse.stats.ran <- TOS.ran.subset %>%
+  group_by(landuse) %>%
+  summarise(
+    mean = mean(lHg, na.rm = TRUE),
+    median = median(lHg, na.rm = TRUE), 
+    var = var(lHg, na.rm = TRUE),
+    sd = sd(lHg, na.rm = TRUE),
+    se = sd/sqrt(n()),
+    upper = quantile(lHg, probs=0.975, na.rm = TRUE),
+    lower = quantile(lHg, probs=0.025, na.rm = TRUE),
+    n = n()
+  )
+HgXlanduse.stats.ran
+na.omit(HgXlanduse.stats.ran)
+
+
+# resampling loop
+# storage matrix
+table(TOS.lm$landuse)
+nlevels <- length(table(TOS.lm$landuse))
+stor.mat <- matrix(data=NA, nrow=iter, ncol=2+2*nlevels)
+landusedir.lab <- paste("landuse",attr(table(TOS.lm$landuse), "names"),"dir",sep="")
+colnames(stor.mat) <- c("ER", "nonzerosum",
+                        paste("landuse",attr(table(TOS.lm$landuse), "names"),sep=""),landusedir.lab)
+head(stor.mat)
+
+for (i in 1:iter) {
+  # generate random coords
+  coords.ran <- select_distant_points(df = TOS.lm.coords, min_dist = min.dist,
+                                      dist_matrix = TOS.lm_haversine_matrix, x_col = "LON", y_col = "LAT")
+  
+  # subset random points for data summaries
+  TOS.ran.subset <- na.omit(TOS.lm[as.numeric(row.names(coords.ran)), ])
+  
+  # fit linear models
+  mod1 <- lm(lHg ~ landuse, data=TOS.ran.subset) # class level model
+  mod.null <- lm(lHg ~ 1, data=TOS.ran.subset) # null model
+  
+  # coefficient boundaries
+  pmmod1 <- plot_model(mod1)
+  pmmod1.coef <- data.frame(landuse=as.character(pmmod1[[1]]$term), lo=pmmod1[[1]]$conf.low,
+                            up=pmmod1[[1]]$conf.high)
+  
+  # determine if zero is in the confidence interval
+  pmmod1.coef$nonzero <- ifelse(contains_zero_sign(pmmod1.coef$lo, pmmod1.coef$up)==F, 1, 0)
+  
+  # determine if negative or positive relationship
+  pmmod1.coef$dir <- ifelse(sign(pmmod1.coef$lo) == -1 & sign(pmmod1.coef$up) == -1, -1, 0)
+  pmmod1.coef$dir <- ifelse(sign(pmmod1.coef$lo) == 1 & sign(pmmod1.coef$up) == 1, 1, pmmod1.coef$dir)
+  
+  # how many variables are non-zero?
+  stor.mat[i,"nonzerosum"] <- sum(pmmod1.coef$nonzero)
+  
+  # which category levels are non-zero?
+  nzlanduses <- pmmod1.coef[which(pmmod1.coef$nonzero==1),]$landuse
+  stor.mat[i, which(colnames(stor.mat) %in% nzlanduses)] <- 1
+  
+  # for non-zeros, what is the direction?
+  nzlandusessdir <- paste(nzlanduses,"dir",sep="")
+  stor.mat[i, which(colnames(stor.mat) %in% nzlandusessdir)] <- pmmod1.coef$dir[which(pmmod1.coef$dir != 0)]
+  
+  # AICc model comparison
+  wAICc <- weight.IC(delta.IC(c(AICc(mod1),AICc(mod.null))))
+  
+  # store evidence ratio
+  stor.mat[i,"ER"] <- wAICc[1]/wAICc[2]
+  
+  if (i %% itdiv == 0) print(paste("iter = ", i, sep=""))
+}
+
+head(stor.mat)
+landuse.labs <- c("CN","INT","PDA","PIA","PRN","WAT","WA")
+lennzCN <- length(table(stor.mat[,"landuseconservation/natural"]))
+lennzINT <- length(table(stor.mat[,"landuseintensive"]))
+lennzPDA <- length(table(stor.mat[,"landuseproduction-dryland agr"]))
+lennzPIA <- length(table(stor.mat[,"landuseproduction-irrigated agr"]))
+lennzPRN <- length(table(stor.mat[,"landuseproduction-relatively natural"]))
+lennzWAT <- length(table(stor.mat[,"landusewater"]))
+
+nzrslts <- c(ifelse(lennzCN==1, as.numeric(table(stor.mat[,"landuseconservation/natural"])), 0),
+             ifelse(lennzINT==1, as.numeric(table(stor.mat[,"landuseintensive"])), 0),
+             ifelse(lennzPDA==1, as.numeric(table(stor.mat[,"landuseproduction-dryland agr"])), 0),
+             ifelse(lennzPIA==1, as.numeric(table(stor.mat[,"landuseproduction-irrigated agr"])), 0),
+             ifelse(lennzPRN==1, as.numeric(table(stor.mat[,"landuseproduction-relatively natural"])), 0),
+             ifelse(lennzWAT==1, as.numeric(table(stor.mat[,"landusewater"])), 0))
+
+dirCNtab <- table(stor.mat[,"landuseconservation/natural"])
+dirINTtab <- table(stor.mat[,"landuseintensive"])
+dirPDAtab <- table(stor.mat[,"landuseproduction-dryland agr"])
+dirPIAtab <- table(stor.mat[,"landuseproduction-irrigated agr"])
+dirPRNtab <- table(stor.mat[,"landuseproduction-relatively natural"])
+dirWATtab <- table(stor.mat[,"landusewater"])
+
+dirlenCN <- length(dirCNtab)
+dirlenINT <- length(dirINTtab)
+dirlenPDA <- length(dirPDAtab)
+dirlenPIA <- length(dirPIAtab)
+dirlenPRN <- length(dirPRNtab)
+dirlenWAT <- length(dirWATtab)
+
+if (dirlenCN == 0) {
+  CNpos <- 0
+  CNneg <- 0
+} else if (dirlenCN == 1 & as.numeric(attr(dirCNtab,"names")[1]) == 1) {
+  CNpos <- as.numeric(dirCNtab)[1]
+  CNneg <- 0
+} else if (dirlenCN == 1 & as.numeric(attr(dirCNtab,"names")[1]) == -1) {
+  CNpos <- 0
+  CNneg <- as.numeric(dirCNtab)[1]
+} else if (dirlenCN == 2) {
+  CNneg <- as.numeric(dirCNtab)[1]
+  CNpos <- as.numeric(dirCNtab)[2]
+} else {
+  CNpos <- 0
+  CNneg <- 0
+}
+
+if (dirlenINT == 0) {
+  INTpos <- 0
+  INTneg <- 0
+  } else if (dirlenINT == 1 & as.numeric(attr(dirINTtab,"names")[1]) == 1) {
+    INTpos <- as.numeric(dirINTtab)[1]
+    INTneg <- 0
+  } else if (dirlenINT == 1 & as.numeric(attr(dirINTtab,"names")[1]) == -1) {
+    INTpos <- 0
+    INTneg <- as.numeric(dirINTtab)[1]
+  } else if (dirlenINT == 2) {
+    INTneg <- as.numeric(dirINTtab)[1]
+    INTpos <- as.numeric(dirINTtab)[2]
+  } else {
+    INTpos <- 0
+    INTneg <- 0
+}
+
+if (dirlenPDA == 0) {
+  PDApos <- 0
+  PDAneg <- 0
+  } else if (dirlenPDA == 1 & as.numeric(attr(dirPDAtab,"names")[1]) == 1) {
+    PDApos <- as.numeric(dirPDAtab)[1]
+    PDAneg <- 0
+  } else if (dirlenPDA == 1 & as.numeric(attr(dirPDAtab,"names")[1]) == -1) {
+    PDApos <- 0
+    PDAneg <- as.numeric(dirPDAtab)[1]
+  } else if (dirlenPDA == 2) {
+    PDAneg <- as.numeric(dirPDAtab)[1]
+    PDApos <- as.numeric(dirPDAtab)[2]
+  } else {
+    PDApos <- 0
+    PDAneg <- 0
+}
+
+if (dirlenPIA == 0) {
+  PIApos <- 0
+  PIAneg <- 0
+  } else if (dirlenPIA == 1 & as.numeric(attr(dirPIAtab,"names")[1]) == 1) {
+    PIApos <- as.numeric(dirPIAtab)[1]
+    PIAneg <- 0
+  } else if (dirlenPIA == 1 & as.numeric(attr(dirPIAtab,"names")[1]) == -1) {
+    PIApos <- 0
+    PIAneg <- as.numeric(dirPIAtab)[1]
+  } else if (dirlenPIA == 2) {
+    PIAneg <- as.numeric(dirPIAtab)[1]
+    PIApos <- as.numeric(dirPIAtab)[2]
+  } else {
+    PIApos <- 0
+    PIAneg <- 0
+}
+
+if (dirlenPRN == 0) {
+  PRNpos <- 0
+  PRNneg <- 0
+  } else if (dirlenPRN == 1 & as.numeric(attr(dirPRNtab,"names")[1]) == 1) {
+    PRNpos <- as.numeric(dirPRNtab)[1]
+    PRNneg <- 0
+  } else if (dirlenPRN == 1 & as.numeric(attr(dirPRNtab,"names")[1]) == -1) {
+    PRNpos <- 0
+    PRNneg <- as.numeric(dirPRNtab)[1]
+  } else if (dirlenPRN == 2) {
+    PRNneg <- as.numeric(dirPRNtab)[1]
+    PRNpos <- as.numeric(dirPRNtab)[2]
+  } else {
+    PRNpos <- 0
+    PRNneg <- 0
+}
+
+if (dirlenWAT == 0) {
+  WATpos <- 0
+  WATneg <- 0
+  } else if (dirlenWAT == 1 & as.numeric(attr(dirWATtab,"names")[1]) == 1) {
+    WATpos <- as.numeric(dirWATtab)[1]
+    WATneg <- 0
+  } else if (dirlenWAT == 1 & as.numeric(attr(dirWATtab,"names")[1]) == -1) {
+    WATpos <- 0
+    WATneg <- as.numeric(dirWATtab)[1]
+  } else if (dirlenWAT == 2) {
+    WATneg <- as.numeric(dirWATtab)[1]
+    WATpos <- as.numeric(dirWATtab)[2]
+  } else {
+    WATpos <- 0
+    WATneg <- 0
+}
+
+nznegdirrslts <- c(CNneg, INTneg, PDAneg, PIAneg, PRNneg, WATneg)
+nzposdirrslts <- c(CNpos, INTpos, PDApos, PIApos, PRNpos, WATpos)
+
+results.out <- data.frame(landuse=landusedir.lab, nonzero=nzrslts/iter, negdir=nznegdirrslts/iter,
+                          posdir=nzposdirrslts/iter)
+results.out
+
+# evidence ratios
+10^median(log10(stor.mat[,"ER"]))
+quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
+10^quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
+quantile(log10(stor.mat[,"ER"]), probs=c(0.1,0.9))
+10^quantile(log10(stor.mat[,"ER"]), probs=c(0.1,0.9))
+
+hist(log10(stor.mat[,"ER"]), main="", xlab="log10 ER")
+abline(v=median(log10(stor.mat[,"ER"])), col="red", lwd=2, lty=2)
+abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.1), col="blue", lwd=2, lty=2)
+abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.9), col="blue", lwd=2, lty=2)
+
+
+                             
 
 
 ###################################################### 
