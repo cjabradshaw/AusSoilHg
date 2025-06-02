@@ -38,7 +38,7 @@ Most of these files are too large to store in this repository directly, so in mo
 - <em><a href="https://files.worldwildlife.org/wwfcmsprod/files/Publication/file/6kcchn7e3u_official_teow.zip">wwf_terr_ecos.shp</a></em>: WWF ecoregions shapefile (download zipped file from original site)
 - <em><a href="http://dap.nci.org.au/thredds/remoteCatalogService'command=subset&catalog=http://dapds00.nci.org.au/thredds/catalog/ub8/au/OzWALD/annual//catalog.xml&dataset=ub8-au/OzWALD/annual/OzWALD.GPP.AnnualSums.nc">OzWALD.GPP.AnnualMeans.nc</a></em>: vegetation carbon uptake (gross primary production) NetCDF (download from original site)
 - <em><a href="http://dap.nci.org.au/thredds/remoteCatalogService'command=subset&catalog=http://dapds00.nci.org.au/thredds/catalog/ub8/au/OzWALD/annual//catalog.xml&dataset=ub8-au/OzWALD/annual/OzWALD.LAI.AnnualMeans.nc">OzWALD.LAI.AnnualMeans.nc</a></em>: leaf area index NetCDF (download from original site)
-#### geology & geochemistry
+#### geology, soil, & geochemistry
 - <em><a href="https://d28rz98at9flks.cloudfront.net/74619/74619_1M_shapefiles.zip">GeologicUnitPolygons1M.shp</a></em>: 1:1,000,000 geological unit polygon shapefile (download zipped file from original site)
 - <em><a href="data/spatial/lithreclass.csv">lithreclass.csv</a></em>: reclassified lithology groups text file
 - <em><a href="https://ecat.ga.gov.au/geonetwork/srv/eng/catalog.search#/metadata/144413">radmap_v4_2019_filtered_ML_KThU_RGB_24bit.tif</a></em>: potassium:thorium:uranium geotif raster (download data package from original site)
@@ -50,6 +50,11 @@ Most of these files are too large to store in this repository directly, so in mo
 - <em><a href="https://data.csiro.au/collection/csiro%3A11030v4">pHc_000_005_EV_N_P_AU_NAT_C_20140801.tif</a></em>: soil pH (0-5 cm) geotif raster (download from original site)
 - <em><a href="https://data.csiro.au/collection/csiro:55684">CLY_000_005_EV_N_P_AU_TRN_N_20210902.tif</a></em>: % soil clay content geotif raster (download from original site)
 - <em><a href="https://data.csiro.au/collection/csiro:10688?q=soil%20silt&_st=keyword&_str=12&_si=1">SLT_000_005_EV_N_P_AU_TRN_N_20210902.tif</a></em>: % soil silt content geotif raster (download from original site)
+- <em><a href="https://doi.org/10.26186/144231">FERRICPC2mrg.tif</a></em>: principal component 2 of blue, red, NIR, SWIR1 from the enhanced barest Earth (proxy for soil categories on continuous scale) (based on Loughin 1991); layer pre-prepared for appropriate projection and clipped area
+- <em><a href="https://doi.org/10.26186/144231">FERRICPC4mrg.tif</a></em>: principal component 4 of blue, red, NIR, SWIR1 from the enhanced barest Earth (proxy for soil categories on continuous scale) (based on Loughin 1991); layer pre-prepared for appropriate projection and clipped area
+- <em><a href="https://ecat.ga.gov.au/geonetwork/srv/eng/catalog.search#/metadata/148587">Aluminium_oxide_prediction_median.tif</a></em>: aluminium oxide (Al<sub>2</sub>O<sub>3</sub>)
+- <em><a href="https://ecat.ga.gov.au/geonetwork/srv/eng/catalog.search#/metadata/148587">Feox9473.tif</a></em>: iron oxide (Fe<sub>2</sub>O<sub>3</sub>); pre-prepared for correct projection
+- <em><a href="https://ecat.ga.gov.au/geonetwork/srv/eng/catalog.search#/metadata/148587">Pox9473.tif</a></em>: phosphorus oxide (P<sub>2</sub>0<sub>5</sub>); pre-prepared for correct projection 
 #### water
 - <em><a href="http://dap.nci.org.au/thredds/remoteCatalogService'command=subset&catalog=http://dapds00.nci.org.au/thredds/catalog/ub8/au/OzWALD/annual//catalog.xml&dataset=ub8-au/OzWALD/annual/OzWALD.annual.Pg.AnnualSums.nc">OzWALD.annual.Pg.AnnualSums.nc</a></em>: annual precipitation <a href="https://www.unidata.ucar.edu/software/netcdf/">NetCDF</a> (download from original site)
 - <em><a href="https://data.csiro.au/collection/csiro:9636v2">PrescottIndex_01_3s_lzw.tif</a></em>: Prescott index geotif raster (download from original site)
