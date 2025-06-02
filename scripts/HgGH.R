@@ -1,9 +1,12 @@
 # soil Hg analysis
 # determinants of Hg in soil for Australia
 # Corey Bradshaw
-# February 2025
+# June 2025
 
 # rm(list = ls())
+
+# increase memory to max
+mem.maxVSize(v = Inf)
 
 # libraries
 library(ade4) # analyse ecological/environmental data
@@ -20,6 +23,7 @@ library(geodata) # downloading spatial data
 library(geosphere) # geographic distance calculations
 library(ggplot2) # plotting
 library(gstat) # for geostatistical modelling
+library(gridExtra) # for grid graphics
 library(kableExtra) # tabulation
 library(ncdf4) # opening NetCDF files
 library(patchwork) # multiplot layouts
@@ -30,7 +34,8 @@ library(randomForestExplainer)
 library(raster) # raster data handling
 library(rnaturalearth) # natural Earth map data
 library(rnaturalearthdata) # vector map data
-library(sf) # sf objects
+library(rayshader) # for 3D visualization
+library(sf) # simple features objects
 library(sjPlot) # model diagnostics
 library(sp) # methods for spatial data
 library(spatialRF) # spatial regression with random forest
@@ -39,6 +44,7 @@ library(spdep) # package version & build info
 library(terra) # spatial data manipulation & visualisation
 library(tidyverse) # data management
 library(usdm) # variable inflation
+library(viridis) # for colour palettes
 
 # import datasets
 ## geochemical dataset
@@ -486,7 +492,6 @@ Hgpts <- vect(cbind(datmrg$LON.x, datmrg$LAT.x), crs="+proj=longlat")
 terra::plot(Hgpts)
 
 ## land use https://www.agriculture.gov.au/abares/aclump/land-use/data-download
-setwd("~/Documents/Papers/Soil/Hg Aus/data/land use/")
 lu <- rast('NLUM_v7_250_ALUMV8_2020_21_alb.tif')
 terra::plot(lu)
 
@@ -816,6 +821,191 @@ head(soilsilt.Hgpts)
 # add to data
 datmrg$soilsilt <- soilsilt.Hgpts$SLT_000_005_EV_N_P_AU_TRN_N_20210902
 
+## soil categories
+## https://data.csiro.au/collection/csiro:40340
+## https://doi.org/10.25919/5f1632a855c17
+## citation: CSIRO; & National Resource Information Centre, BRS (1991): Atlas of Australian Soils (digital). v3. 
+## CSIRO. Data Collection. https://doi.org/10.25919/5f1632a855c17
+## Soil type classification based on the Australian Soil Classification (Isbell, 1996)
+## https://www.soilscienceaustralia.org.au/asc/soilhome.htm
+soil <- vect("soilAtlas2M.shp")
+soil
+names(soil)
+attr(table(soil$MAP_UNIT), 'names')
+saveRDS(soil, "soil.rds")
+
+# soil attributes
+soil.key <- read.csv("asclut.csv")
+head(soil.key)
+
+soils <- merge(soil, soil.key, by="MAP_UNIT")
+soils
+attr(table(soils$TYPE), 'names')
+saveRDS(soils, "soils.rds")
+
+# export
+#writeVector(soils, filename = "soilsMain.shp", overwrite = TRUE)
+
+# extract
+soils.Hgpts <- terra::extract(soils, Hgpts)
+head(soils.Hgpts)
+
+# add to data
+datmrg$soils <- soils.Hgpts$TYPE
+
+# enhanced barest earth (proxy for soil categories on continuous scale)
+# https://ecat.ga.gov.au/geonetwork/srv/eng/catalog.search#/metadata/144231
+# https://pid.geoscience.gov.au/dataset/ga/144231
+# https://doi.org/10.26186/144231
+# Wilford, J. and Roberts, D., 2020. Enhanced barest earth Landsat imagery for soil
+# and lithological modelling. In: Czarnota, K., Roach, I., Abbott, S., Haynes, M.,
+# Kositcin, N., Ray, A. and Slatter, E. (eds.) Exploring for the Future: Extended Abstracts,
+# Geoscience Australia, Canberra, 1–4
+# 1. BLUE; # 2. GREEN; # 3. RED; # 4. NIR; # 5. SWIR1; # 6. SWIR2
+# Normalised ratios bands
+# ((RED - BLUE) / (RED + BLUE)) == "-ND-RED-BLUE.tif"
+# ((SWIR1 - NIR) / (SWIR1 + NIR)) == "-ND-SWIR1-NIR.tif"
+# ((SWIR1 - SWIR2) / (SWIR1 + SWIR2)) == "-ND-SWIR1-SWIR2.tif"
+# ((NIR - GREEN) / (NIR + GREEN)) == "-ND-NIR-GREEN.tif"
+# ((SWIR1 - BLUE) / (SWIR1 + BLUE)) == "-ND-SWIR1-BLUE.tif"
+# ((SWIR2 - NIR) / (SWIR2 + NIR)) == "-ND-SWIR2-NIR.tif"
+# ((SWIR2 - RED) / (SWIR2 + RED)) =="-ND-SWIR2-RED.tif"
+# ((RED - GREEN) / (RED + GREEN)) == "-ND-RED-GREEN.tif"
+# ((SWIR2 - GREEN) / (SWIR2 + GREEN)) == "-ND-SWIR2-GREEN.tif"
+# Ferric PC2 of BLUE and RED == "-FERRIC-PC2.tif"(based on Chavez and Kwarteng 1989)
+# Ferric - PC4 of BLUE, RED, NIR, SWIR1 == "-FERRIC-PC4.tif" (based on Loughin, 1991)
+# Hydroxyl (clay) PC 1 of SWIR1/SWIR2 and NIR/RED (Fraser and Green, 1987) == "-HYDROXYL-1-PC1.tif"
+# (clay)
+# Hydroxyl (clay) PC 2 of SWIR1/SWIR2 and NIR/RED (Fraser and Green, 1987) == "-HYDROXYL-1-PC2.tif"
+# (mixed vegetation and clay)
+# Hydroxyl - PC2 of SWIR1, SWIR2 == "-HYDROXYL-2-PC2.tif"(based on Chavez and Kwarteng 1989)
+# Hydroxyl - PC3, PC4 of BLUE, NIR, SWIR1, SWIR2 == "-HYDROXYL-3-PC3.tif", "-HYDROXYL-3-PC4.tif"(based on Loughin, 1991)
+# Band additions: # Carbonate/quartz (non-clays highly reflective) BLUE + SWIR2
+ferricpc4 <- rast("FERRICPC4mrg.tif")
+crs(ferricpc4)
+crs(ferricpc4) <- "epsg:3577"
+ext(ferricpc4)
+terra::plot(ferricpc4)
+saveRDS(ferricpc4, "ferricpc4.rds")
+
+ferricpc2 <- rast("FERRICPC2mrg.tif")
+crs(ferricpc2)
+crs(ferricpc2) <- "epsg:3577"
+ext(ferricpc2)
+terra::plot(ferricpc2)
+saveRDS(ferricpc2, "ferricpc2.rds")
+
+aus.terr <- vect("aus.shp")
+crs(aus.terr)
+ext(aus.terr)
+
+# project aus.terr to "epsg:3577"
+aus.terr3577 <- project(aus.terr, "epsg:3577")
+terra::plot(aus.terr3577)
+saveRDS(aus.terr3577, "austerr3577.rds")
+
+# find projection boundaries for aus.terr9473
+ext3577 <- ext(aus.terr3577)
+
+# clip to aus.terr
+ferricpc4.clip <- crop(ferricpc4, aus.terr3577)
+ferricpc2.clip <- crop(ferricpc2, aus.terr3577)
+
+# project ferricpc4.clip to "epsg:9473"
+ferricpc4clip9473 <- project(ferricpc4.clip, "epsg:9473")
+terra::plot(ferricpc4clip9473)
+saveRDS(ferricpc4clip9473, "ferricpc4clip9473.rds")
+ferricpc2clip9473 <- project(ferricpc2.clip, "epsg:9473")
+terra::plot(ferricpc2clip9473)
+saveRDS(ferricpc2clip9473, "ferricpc2clip9473.rds")
+
+# write raster
+writeRaster(ferricpc4clip9473, "ferricpc4clip9473.tif")
+writeRaster(ferricpc2clip9473, "ferricpc2clip9473.tif")
+ferricpc4clip9473 <- rast("ferricpc4clip9473.tif")
+ferricpc2clip9473 <- rast("ferricpc2clip9473.tif")
+
+# project back to WGS84
+ferricpc4clip4326 <- project(ferricpc4clip9473, "epsg:4326")
+ferricpc2clip4326 <- project(ferricpc2clip9473, "epsg:4326")
+ferric2.rst <- ferricpc2clip4326
+ferric4.rst <- ferricpc4clip4326
+ferric2.rsmp <- resample(ferric2.rst, lai.rst)
+ferric4.rsmp <- resample(ferric4.rst, lai.rst)
+plot(ferric2.rsmp)
+plot(ferric4.rsmp)
+crs(ferric2.rsmp) <- crsUse
+crs(ferric4.rsmp) <- crsUse
+
+# extract
+ferricpc4.Hgpts <- terra::extract(ferricpc4clip4326, Hgpts)
+head(ferricpc4.Hgpts)
+ferricpc2.Hgpts <- terra::extract(ferricpc2clip4326, Hgpts)
+head(ferricpc2.Hgpts)
+
+# add to data
+datmrg$ferricpc4 <- ferricpc4.Hgpts$FERRICPC4mrg
+datmrg$ferricpc2 <- ferricpc2.Hgpts$FERRICPC2mrg
+
+## aluminium oxide
+## https://ecat.ga.gov.au/geonetwork/srv/eng/catalog.search#/metadata/148587
+## doi:10.26186/148587
+Alox <- rast("Aluminium_oxide_prediction_median.tif")  # need to project original GeoTIFF into 9473 projection first
+terra::plot(Alox)
+Alox9473 <- project(Alox, "epsg:9473")
+terra::plot(Alox9473,col=rev(map.pal("sepia",200)))
+Alox4326 <- project(Alox9473, crs(Hgpts))
+Alox.rst <- Alox4326
+Alox.rsmp <- resample(Alox.rst, lai.rst)
+plot(Alox.rsmp)
+crs(Alox.rsmp) <- crsUse
+
+# extract
+Alox.Hgpts <- terra::extract(Alox4326, Hgpts)
+head(Alox.Hgpts)
+
+# add to data
+datmrg$Alox <- Alox.Hgpts$Aluminium_oxide_prediction_median
+
+
+## iron oxide
+## https://ecat.ga.gov.au/geonetwork/srv/eng/catalog.search#/metadata/148587
+## doi:10.26186/148587
+Feox9473 <- rast("Feox9473.tif")  # need to project original GeoTIFF into 9473 projection first
+terra::plot(Feox9473,col=(map.pal("gyr",200)))
+Feox4326 <- project(Feox9473, crs(Hgpts))
+Feox.rst <- Feox4326
+Feox.rsmp <- resample(Feox.rst, lai.rst)
+plot(Feox.rsmp)
+crs(Feox.rsmp) <- crsUse
+
+# extract
+Feox.Hgpts <- terra::extract(Feox4326, Hgpts)
+head(Feox.Hgpts)
+
+# add to data
+datmrg$Feox <- Feox.Hgpts$Feox9473
+
+
+## phosphorus oxide
+## https://ecat.ga.gov.au/geonetwork/srv/eng/catalog.search#/metadata/148587
+## doi:10.26186/148587
+Pox9473 <- rast("Pox9473.tif") # need to project original GeoTIFF into 9473 projection first
+terra::plot(Pox9473,col=rev(map.pal("plasma",200)))
+Pox4326 <- project(Pox9473, crs(Hgpts))
+Pox.rst <- Pox4326
+Pox.rsmp <- resample(Pox.rst, lai.rst)
+plot(Pox.rsmp)
+crs(Pox.rsmp) <- crsUse
+
+# extract
+Pox.Hgpts <- terra::extract(Pox4326, Hgpts)
+head(Pox.Hgpts)
+
+# add to data
+datmrg$Pox <- Pox.Hgpts$Pox9473
+
+
 ## merged file elements
 head(datmrg)
 
@@ -995,6 +1185,15 @@ abline(lm(log10(TOS.dat$HgCOMP) ~ (TOS.dat$soilP)), col="red", lwd=2, lty=2)
 plot((BOS.dat$soilP), log10(BOS.dat$HgCOMP), xlab="soil P", ylab="log10 [Hg]", pch=19, col="blue")
 abline(lm(log10(BOS.dat$HgCOMP) ~ (BOS.dat$soilP)), col="red", lwd=2, lty=2)
 
+# ferric PC4 barest earth soil vs. Hg
+plot((TOS.dat$ferricpc4), log10(TOS.dat$HgCOMP), xlab="ferric PC4", ylab="log10 [Hg]", pch=19, col="blue")
+abline(lm(log10(TOS.dat$HgCOMP) ~ TOS.dat$ferricpc4), col="red", lwd=2, lty=2)
+hist(TOS.dat$ferricpc4)
+
+# ferric PC2 barest earth soil vs. Hg
+plot((TOS.dat$ferricpc2), log10(TOS.dat$HgCOMP), xlab="ferric PC4", ylab="log10 [Hg]", pch=19, col="blue")
+abline(lm(log10(TOS.dat$HgCOMP) ~ TOS.dat$ferricpc2), col="red", lwd=2, lty=2)
+hist(TOS.dat$ferricpc2)
 
 # latitude vs. Hg
 plot(datmrg$LAT.x, log10(datmrg$HgCOMP), xlab="latitude", ylab="log10 [Hg]", pch=19, col="blue")
@@ -1213,9 +1412,45 @@ ggplot(HgXlith.sort, aes(x = reorder(lithgrp, mean), y = mean)) +
     axis.text.x = element_text(size = 16),
     axis.text.y = element_text(size = 12))
 
+# Hg by soil type
+TOS.HgXsoil <- sort(xtabs(TOS.dat$HgCOMP ~ TOS.dat$soils, na.rm=T) / table(TOS.dat$soils))
+barplot(TOS.HgXsoil, xlab="soil type", ylab="mean TOS [Hg]", col="blue")
+BOS.HgXsoil <- sort(xtabs(BOS.dat$HgCOMP ~ BOS.dat$soils, na.rm=T) / table(BOS.dat$soils))
+barplot(BOS.HgXsoil, xlab="soil type", ylab="mean BOS [Hg]", col="blue")
+
+HgXsoil.stats <- TOS.dat %>%
+  group_by(soils) %>%
+  summarise(
+    mean = mean(HgCOMP, na.rm = TRUE),
+    median = median(HgCOMP, na.rm = TRUE), 
+    var = var(HgCOMP, na.rm = TRUE),
+    sd = sd(HgCOMP, na.rm = TRUE),
+    se = sd/sqrt(n()),
+    upper = quantile(HgCOMP, probs=0.975, na.rm = TRUE),
+    lower = quantile(HgCOMP, probs=0.025, na.rm = TRUE),
+    n = n()
+  )
+HgXsoil.sort <- na.omit(HgXsoil.stats %>% arrange(mean))
+HgXsoil.sort
+
+soils.plot <- ggplot(HgXsoil.sort, aes(x = reorder(soils, mean), y = mean)) +
+  geom_bar(stat='identity', fill = "steelblue") +
+  geom_errorbar(aes(ymin = mean-(2*se), ymax = mean+(2*se)),
+                width = 0.2) +
+  labs(x = "soil type", y = "mean [Hg] ± 2 se") +
+  theme(# axis labels (titles)
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 16),
+    
+    # Axis text (values)
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 12))
+soils.plot.flip <- soils.plot + coord_flip()
+soils.plot.flip
+
+
 
 ## create dataset for testing relationships
-# TOS
 colnames(TOS.dat)
 TOS.test1 <- data.frame(SITEID=TOS.dat$SITEID, LAT=TOS.dat$LAT.x, LON=TOS.dat$LON.x, lHg=log10(TOS.dat$HgCOMP), lgs=log10(TOS.dat$gs.wmn),
                        lgtclay=logit(TOS.dat$CLAY/100), lgtsoilclay=logit(TOS.dat$soilclay/100),
@@ -1227,7 +1462,9 @@ TOS.test1 <- data.frame(SITEID=TOS.dat$SITEID, LAT=TOS.dat$LAT.x, LON=TOS.dat$LO
                        lAl=log10(TOS.dat$Al), lFe=log10(TOS.dat$Fe), lMn=log10(TOS.dat$Mn), lCu=log10(TOS.dat$CuICPMS),
                        lZn=log10(TOS.dat$ZnICPMS), lPb=log10(TOS.dat$PbICPMS), lSb=log10(TOS.dat$SbICPMS),
                        lNi=log10(TOS.dat$NiCPMS), lV=log10(TOS.dat$V), lKThU=log10(TOS.dat$KThU),
-                       lucat=TOS.dat$lucat, biome=TOS.dat$biome, geol=TOS.dat$lithgrp)
+                       lucat=TOS.dat$lucat, biome=TOS.dat$biome, geol=TOS.dat$lithgrp, soils=TOS.dat$soils,
+                       ferric4=TOS.dat$ferricpc4, ferric2=TOS.dat$ferricpc2, Alox=TOS.dat$Alox, 
+                       Feox=TOS.dat$Feox, Pox=TOS.dat$Pox)
 
 head(TOS.test1)
 dim(TOS.test1)
@@ -1264,6 +1501,11 @@ length(which(is.na(TOS.test$lSb)==T)) # 9 missing
 length(which(is.na(TOS.test$lNi)==T)) # 9 missing
 length(which(is.na(TOS.test$lV)==T)) # 9 missing
 length(which(is.na(TOS.test$lKThU)==T)) # good
+length(which(is.na(TOS.test$ferric4)==T)) # good
+length(which(is.na(TOS.test$ferric2)==T)) # good
+length(which(is.na(TOS.test$Alox)==T)) # good
+length(which(is.na(TOS.test$Feox)==T)) # good
+length(which(is.na(TOS.test$Pox)==T)) # good
 
 ## any infinites?
 length(which(is.infinite(TOS.test$lHg)==T))
@@ -1290,6 +1532,14 @@ length(which(is.infinite(TOS.test$lSb)==T))
 length(which(is.infinite(TOS.test$lNi)==T))
 length(which(is.infinite(TOS.test$lV)==T))
 length(which(is.infinite(TOS.test$lKThU)==T))
+length(which(is.infinite(TOS.test$ferric4)==T))
+length(which(is.infinite(TOS.test$ferric2)==T))
+length(which(is.infinite(TOS.test$Alox)==T))
+length(which(is.infinite(TOS.test$Feox)==T))
+
+
+testpts <- vect(cbind(TOS.test$LON, TOS.test$LAT), crs="+proj=longlat")
+terra::plot(testpts)
 
 # histograms
 hist(TOS.test$lHg, xlab="log10 [Hg]", main="")
@@ -1320,6 +1570,11 @@ hist(TOS.test$lSb, xlab="log10 [Sb]", main="")
 hist(TOS.test$lNi, xlab="log10 [Ni]", main="")
 hist(TOS.test$lV, xlab="log10 [V]", main="")
 hist(TOS.test$lKThU, xlab="log10 [KThU]", main="")
+hist(TOS.test$ferric4, xlab="ferric PC4", main="")
+hist(TOS.test$ferric2, xlab="ferric PC2", main="")
+hist(TOS.test$Alox, xlab="Al oxide", main="")
+hist(TOS.test$Feox, xlab="Fe oxide", main="")
+hist(TOS.test$Pox, xlab="P oxide", main="")
 
 dim(TOS.test)
 
@@ -1330,22 +1585,105 @@ TOS.test$lLOI[(which(is.infinite(TOS.test$lLOI)==T))] <- NA
 TOS.test$llai[(which(is.infinite(TOS.test$llai)==T))] <- NA
 TOS.test$lgpp[(which(is.infinite(TOS.test$lgpp)==T))] <- NA
 
+## split by biome & re-examine vif
+table(TOS.test$biome)
+TOS.test.tempfor <- subset(TOS.test, biome=="TBMF")
+TOS.test.tempgrass <- subset(TOS.test, biome=="TGSS")
+TOS.test.Medfor <- subset(TOS.test, biome=="MFW")
+TOS.test.tropfor <- subset(TOS.test, biome=="TSMBF")
+TOS.test.tropgrass <- subset(TOS.test, biome=="TSGSS")
+TOS.test.dryxeric <- subset(TOS.test, biome=="DXS")
+
 ## correlation matrix
+# temperate forest
+TOS.cor.tempfor <- na.omit(TOS.test.tempfor[,c("lHg","lgs","lgtclay","lgtsilt","pH15","lelecond","lLOI","prescott","soilH20","llai","lgpp","soillN","soillP",
+                               "lAl","lFe","lMn","lCu","lZn","lPb","lSb","lNi","lV","lKThU","ferric4","ferric2","Alox","Feox","Pox")])
+VIF.tempfor <- usdm::vif(TOS.cor.tempfor)
+VIF.tempfor[which(VIF.tempfor$VIF > 4),]
+usdm::vifstep(TOS.cor.tempfor, th=5)
+
+# remove multicollinear variables
+TOS.cor.tempfor.brt <- TOS.cor.tempfor %>% dplyr::select(-c('lFe', 'lV', 'lgtsilt', 'ferric4'))
+usdm::vif(TOS.cor.tempfor.brt)
+
+# Mediterranean forest
+TOS.cor.Medfor <- na.omit(TOS.test.Medfor[,c("lHg","lgs","lgtclay","lgtsilt","pH15","lelecond","lLOI","prescott","soilH20","llai","lgpp","soillN","soillP",
+                               "lAl","lFe","lMn","lCu","lZn","lPb","lSb","lNi","lV","lKThU","ferric4","ferric2","Alox","Feox","Pox")])
+VIF.Medfor <- usdm::vif(TOS.cor.Medfor)
+VIF.Medfor[which(VIF.Medfor$VIF > 4),]
+usdm::vifstep(TOS.cor.tempfor, th=5)
+
+# remove multicollinear variables
+TOS.cor.Medfor.brt <- TOS.cor.Medfor %>% dplyr::select(-c('lFe', 'lV', 'lgpp','lAl','prescott','ferric4'))
+usdm::vif(TOS.cor.Medfor.brt)
+
+# temperate grassland/savanna
+TOS.cor.tempgrass <- na.omit(TOS.test.tempgrass[,c("lHg","lgs","lgtclay","lgtsilt","pH15","lelecond","lLOI","prescott","soilH20","llai","lgpp","soillN","soillP",
+                               "lAl","lFe","lMn","lCu","lZn","lPb","lSb","lNi","lV","lKThU","ferric4","ferric2","Alox","Feox","Pox")])
+VIF.tempgrass <- usdm::vif(TOS.cor.tempgrass)
+VIF.tempgrass[which(VIF.tempgrass$VIF > 4),]
+
+# remove multicollinear variables
+TOS.cor.tempgrass.brt <- TOS.cor.tempgrass %>% dplyr::select(-c('lFe', 'lV', 'lgpp','llai', "ferric4"))
+usdm::vif(TOS.cor.tempgrass.brt)
+
+# tropical forest (n = 28 only; insufficient for VIF)
+TOS.cor.tropfor <- na.omit(TOS.test.tropfor[,c("lHg","lgs","lgtclay","lgtsilt","pH15","lelecond","lLOI","prescott","soilH20","llai","lgpp","soillN","soillP",
+                               "lAl","lFe","lMn","lCu","lZn","lPb","lSb","lNi","lV","lKThU","ferric4","ferric2","Alox","Feox","Pox")])
+VIF.tropfor <- usdm::vif(TOS.cor.tropfor)
+VIF.tropfor[which(VIF.tropfor$VIF > 4),]
+dim(TOS.cor.tropfor)
+
+# tropical grassland/savanna
+TOS.cor.tropgrass <- na.omit(TOS.test.tropgrass[,c("lHg","lgs","lgtclay","lgtsilt","pH15","lelecond","lLOI","prescott","soilH20","llai","lgpp","soillN","soillP",
+                               "lAl","lFe","lMn","lCu","lZn","lPb","lSb","lNi","lV","lKThU","ferric4","ferric2","Alox","Feox","Pox")])
+# remove infinite values
+TOS.cor.tropgrass$lgtclay[(which(is.infinite(TOS.cor.tropgrass$lgtclay)==T))] <- NA
+
+VIF.tropgrass <- usdm::vif(TOS.cor.tropgrass)
+VIF.tropgrass[which(VIF.tropgrass$VIF > 4),]
+
+# remove multicollinear variables
+TOS.cor.tropgrass.brt <- TOS.cor.tropgrass %>% dplyr::select(-c('lFe', 'lV', 'lgpp','lgtsilt', "ferric4"))
+usdm::vif(TOS.cor.tropgrass.brt)
+
+# dryland/xeric
+TOS.cor.dryxeric <- na.omit(TOS.test.dryxeric[,c("lHg","lgs","lgtclay","lgtsilt","pH15","lelecond","lLOI","prescott","soilH20","llai","lgpp","soillN","soillP",
+                               "lAl","lFe","lMn","lCu","lZn","lPb","lSb","lNi","lV","lKThU","ferric4","ferric2","Alox","Feox","Pox")])
+VIF.dryxeric <- usdm::vif(TOS.cor.dryxeric)
+VIF.dryxeric[which(VIF.dryxeric$VIF > 4),]
+
+# remove multicollinear variables
+TOS.cor.dryxeric.brt <- TOS.cor.dryxeric %>% dplyr::select(-c('lFe', 'lCu','lZn', 'lAl','lgtsilt','lgpp', "ferric4"))
+usdm::vif(TOS.cor.dryxeric.brt)
+
+
+## full dataset correlation matrix
 TOS.cor <- na.omit(TOS.test[,c("lHg","lgs","lgtclay","lgtsilt","pH15","lelecond","lLOI","prescott","soilH20","llai","lgpp","soillN","soillP",
-                "lAl","lFe","lMn","lCu","lZn","lPb","lSb","lNi","lV","lKThU")])
+                "lAl","lFe","lMn","lCu","lZn","lPb","lSb","lNi","lV","lKThU","ferric4","ferric2","Alox","Feox","Pox")])
 class(TOS.cor)
 dim(TOS.cor)
 head(TOS.cor)
 round(cor(TOS.cor, method="spearman"), 2)
 
 ## variance inflation
-usdm::vif(TOS.cor)
-usdm::vif(TOS.cor[,c("lHg","lgs","lgtclay","pH15","lelecond","lLOI","prescott","soilH20","llai","soillN","soillP",
-                     "lAl","lMn","lCu","lPb","lSb","lNi","lKThU")])
+VIF.TOS <- usdm::vif(TOS.cor)
+VIF.TOS
+VIF.TOS[which(VIF.TOS$VIF > 4),]
+
+## combine VIF tables
+VIF.biome <- cbind(all=VIF.TOS$VIF, tempfor=VIF.tempfor$VIF, Medfor=VIF.Medfor$VIF, tempgrass=VIF.tempgrass$VIF, tropfor=VIF.tropfor$VIF,
+                   tropgrass=VIF.tropgrass$VIF, dryxeric=VIF.dryxeric$VIF)
+row.names(VIF.biome) <- VIF.tempfor$Variable
+VIF.biome
+
+# plot heatmap of VIF
+heatmap(VIF.biome[,-5], col=rev(heat.colors(256)), scale="none", na.rm=T, margins=c(4,4))
+
 
 ## limit variables after VIF inspection
 TOS.test.brt <- TOS.cor[,c("lHg","lgs","lgtclay","pH15","lelecond","lLOI","prescott","soilH20","llai","soillN","soillP",
-                            "lAl","lMn","lCu","lPb","lSb","lNi","lKThU")]
+                            "lAl","lMn","lCu","lPb","lSb","lNi","lKThU","ferric2","Alox","Feox","Pox")]
 dim(TOS.test.brt)
 colnames(TOS.test.brt)
 
@@ -1356,28 +1694,311 @@ TOS.brt <- gbm.step(TOS.test.brt, gbm.x = attr(TOS.test.brt, "names")[c(2:length
                     tree.complexity = 2, silent=F, tolerance.method = "auto")
 summary(TOS.brt)
 barplot(summary(TOS.brt)$rel.inf, names.arg = summary(TOS.brt)$var, xlab="relative influence", ylab="", col="blue")
+TOS.brt.summ <- summary(TOS.brt)
+
+TOS.brt.plot <- ggplot(TOS.brt.summ, aes(x = reorder(var, rel.inf), y = rel.inf)) +
+  geom_bar(stat='identity', fill = "steelblue") +
+  labs(x = "", y = "relative influence") +
+  theme(# axis labels (titles)
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 16),
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 12))
+TOS.brt.plot.flip <- TOS.brt.plot + coord_flip()
+TOS.brt.plot.flip
+
 
 gbm.plot(TOS.brt)
 
 gbm.plot(TOS.brt, smooth=T, rug=T, n.plots=12, common.scale=T, write.title=F, show.contrib=T, 
          y.label="log10 [Hg]")
 
-gbm.plot(TOS.brt, variable.no=9, smooth=T, rug=T, common.scale=T, write.title=F, show.contrib=T, 
-         y.label="log10 [Hg]", x.label="log10 soil nitrogen", plot.layout=c(1,1))
+gbm.plot(TOS.brt, variable.no=18, smooth=T, rug=T, common.scale=T, write.title=F, show.contrib=T, 
+         y.label="log10 [Hg]", x.label="ferric PC4", plot.layout=c(1,1))
 gbm.plot(TOS.brt, variable.no=5, smooth=T, rug=T, common.scale=T, write.title=F, show.contrib=T, 
          y.label="log10 [Hg]", x.label="log10 LOI", plot.layout=c(1,1))
-gbm.plot(TOS.brt, variable.no=8, smooth=T, rug=T, common.scale=T, write.title=F, show.contrib=T, 
-         y.label="log10 [Hg]", x.label="log10 leaf area index", plot.layout=c(1,1))
+gbm.plot(TOS.brt, variable.no=9, smooth=T, rug=T, common.scale=T, write.title=F, show.contrib=T, 
+         y.label="log10 [Hg]", x.label="log10 soil nitrogen", plot.layout=c(1,1))
+gbm.plot(TOS.brt, variable.no=16, smooth=T, rug=T, common.scale=T, write.title=F, show.contrib=T, 
+         y.label="log10 [Hg]", x.label="log10 nickel", plot.layout=c(1,1))
 gbm.plot(TOS.brt, variable.no=4, smooth=T, rug=T, common.scale=T, write.title=F, show.contrib=T, 
          y.label="log10 [Hg]", x.label="log10 electro-conductivity", plot.layout=c(1,1))
+gbm.plot(TOS.brt, variable.no=14, smooth=T, rug=T, common.scale=T, write.title=F, show.contrib=T, 
+         y.label="log10 [Hg]", x.label="log10 lead", plot.layout=c(1,1))
 
 gbm.plot.fits(TOS.brt)
+
+TOS.brt.partial.deps <- list()
+TOS.pred.names <- names(TOS.test.brt)[2:19]
+eq.sp.pts <- 100
+
+for(i in seq_along(TOS.pred.names)) {
+  # Use gbm.plot to get partial dependency values
+  # Set plot.layout = c(1,1) to prevent automatic plotting
+  pd_data <- plot.gbm(TOS.brt, i.var=i, continuous.resolution = eq.sp.pts, return.grid=T)
+  TOS.brt.partial.deps[[TOS.pred.names[i]]] <- pd_data
+  write.csv(TOS.brt.partial.deps[[i]], file = paste0("TOS_", TOS.pred.names[i], "_partial_deps.csv"))
+}
 
 TOS.brt.CV.cor <- 100 * TOS.brt$cv.statistics$correlation.mean
 TOS.brt.CV.cor.se <- 100 * TOS.brt$cv.statistics$correlation.se
 print(c(TOS.brt.CV.cor, TOS.brt.CV.cor.se))
 
-# BOS
+
+## biome-specific BRTs
+# temperate forests
+TOS.cor.tempfor.brt
+dim(TOS.cor.tempfor.brt)
+colnames(TOS.cor.tempfor.brt)
+
+## boosted regression tree
+tempfor.brt <- gbm.step(TOS.cor.tempfor.brt, gbm.x = attr(TOS.cor.tempfor.brt, "names")[c(2:length(colnames(TOS.cor.tempfor.brt)))],
+                    gbm.y = attr(TOS.cor.tempfor.brt, "names")[1], family="gaussian", max.trees=100000,
+                    tolerance = 0.002, learning.rate = 0.001, bag.fraction=0.75,
+                    tree.complexity = 2, silent=F, tolerance.method = "auto")
+summary(tempfor.brt)
+tempfor.brt.summ <- summary(tempfor.brt)
+
+# plots
+tempfor.ri.plt <- ggplot(tempfor.brt.summ) +
+  geom_bar(aes(x=reorder(row.names(tempfor.brt.summ), rel.inf), y=rel.inf), stat="identity", fill="blue", alpha=0.7)
+tempfor.ri.plt + coord_flip() +
+  ylab("relative influence (temperate forest)") + xlab("")
+tempfor.ri.plt.flip <- tempfor.ri.plt + coord_flip() +
+  ylab("relative influence (temperate forest)") + xlab("")
+
+## plot predicted relationships of top x variables
+topNvars <- 9 # x
+topNvar.names <- tempfor.brt.summ[1:topNvars,]$var
+plotNvec <- paste("tempfor.plt",1:topNvars,sep="")
+
+for (v in 1:topNvars) {
+  var.dat <- as.data.frame(plot.gbm(tempfor.brt, i.var=v, continuous.resolution = 100, return.grid=T))
+  colnames(var.dat) <- c("V1", "V2")
+  assign(plotNvec[v], ggplot(data=var.dat) +
+           geom_line(aes(x = V1, y = V2), col="blue") +
+           xlab(topNvar.names[v]) +
+           ylab("log10 [Hg]"))
+}
+grid.arrange(tempfor.plt1, tempfor.plt2, tempfor.plt3, tempfor.plt4, tempfor.plt5, tempfor.plt6,
+             tempfor.plt7, tempfor.plt8, tempfor.plt9, ncol=3)
+
+tempfor.CV <- 100 * tempfor.brt$cv.statistics$correlation.mean
+tempfor.CV.se <- 100 * tempfor.brt$cv.statistics$correlation.se
+print(c(tempfor.CV, tempfor.CV.se))
+
+
+# Mediterranean forests
+TOS.cor.Medfor.brt
+dim(TOS.cor.Medfor.brt)
+colnames(TOS.cor.Medfor.brt)
+
+## boosted regression tree
+Medfor.brt <- gbm.step(TOS.cor.Medfor.brt, gbm.x = attr(TOS.cor.Medfor.brt, "names")[c(2:length(colnames(TOS.cor.Medfor.brt)))],
+                    gbm.y = attr(TOS.cor.Medfor.brt, "names")[1], family="gaussian", max.trees=100000,
+                    tolerance = 0.002, learning.rate = 0.001, bag.fraction=0.75,
+                    tree.complexity = 2, silent=F, tolerance.method = "auto")
+summary(Medfor.brt)
+Medfor.brt.summ <- summary(Medfor.brt)
+
+# plots
+Medfor.ri.plt <- ggplot(Medfor.brt.summ) +
+  geom_bar(aes(x=reorder(row.names(Medfor.brt.summ), rel.inf), y=rel.inf), stat="identity", fill="blue", alpha=0.7)
+Medfor.ri.plt + coord_flip() +
+  ylab("relative influence (Mediterranean forest)") + xlab("")
+Medfor.ri.plt.flip <- Medfor.ri.plt + coord_flip() +
+  ylab("relative influence (Mediterranean forest)") + xlab("")
+
+## plot predicted relationships of top x variables
+topNvars <- 9 # x
+topNvar.names <- Medfor.brt.summ[1:topNvars,]$var
+plotNvec <- paste("Medfor.plt",1:topNvars,sep="")
+for (v in 1:topNvars) {
+  var.dat <- as.data.frame(plot.gbm(Medfor.brt, i.var=v, continuous.resolution = 100, return.grid=T))
+  colnames(var.dat) <- c("V1", "V2")
+  assign(plotNvec[v], ggplot(data=var.dat) +
+           geom_line(aes(x = V1, y = V2), col="blue") +
+           xlab(topNvar.names[v]) +
+           ylab("log10 [Hg]"))
+}
+grid.arrange(Medfor.plt1, Medfor.plt2, Medfor.plt3, Medfor.plt4, Medfor.plt5, Medfor.plt6,
+             Medfor.plt7, Medfor.plt8, Medfor.plt9, ncol=3)
+
+Medfor.CV <- 100 * Medfor.brt$cv.statistics$correlation.mean
+Medfor.CV.se <- 100 * Medfor.brt$cv.statistics$correlation.se
+print(c(Medfor.CV, Medfor.CV.se))
+
+
+# temperate grassland/savanna
+TOS.cor.tempgrass.brt
+dim(TOS.cor.tempgrass.brt)
+colnames(TOS.cor.tempgrass.brt)
+
+## boosted regression tree
+tempgrass.brt <- gbm.step(TOS.cor.tempgrass.brt, gbm.x = attr(TOS.cor.tempgrass.brt, "names")[c(2:length(colnames(TOS.cor.tempgrass.brt)))],
+                    gbm.y = attr(TOS.cor.tempgrass.brt, "names")[1], family="gaussian", max.trees=100000,
+                    tolerance = 0.002, learning.rate = 0.001, bag.fraction=0.75,
+                    tree.complexity = 2, silent=F, tolerance.method = "auto")
+
+summary(tempgrass.brt)
+tempgrass.brt.summ <- summary(tempgrass.brt)
+
+# plots
+tempgrass.ri.plt <- ggplot(tempgrass.brt.summ) +
+  geom_bar(aes(x=reorder(row.names(tempgrass.brt.summ), rel.inf), y=rel.inf), stat="identity", fill="blue", alpha=0.7)
+tempgrass.ri.plt + coord_flip() +
+  ylab("relative influence (temperate grassland/savanna)") + xlab("")
+tempgrass.ri.plt.flip <- tempgrass.ri.plt + coord_flip() +
+  ylab("relative influence (temperate grassland/savanna)") + xlab("")
+
+## plot predicted relationships of top x variables
+topNvars <- 9 # x
+topNvar.names <- tempgrass.brt.summ[1:topNvars,]$var
+plotNvec <- paste("tempgrass.plt",1:topNvars,sep="")
+for (v in 1:topNvars) {
+  var.dat <- as.data.frame(plot.gbm(tempgrass.brt, i.var=v, continuous.resolution = 100, return.grid=T))
+  colnames(var.dat) <- c("V1", "V2")
+  assign(plotNvec[v], ggplot(data=var.dat) +
+           geom_line(aes(x = V1, y = V2), col="blue") +
+           xlab(topNvar.names[v]) +
+           ylab("log10 [Hg]"))
+}
+
+grid.arrange(tempgrass.plt1, tempgrass.plt2, tempgrass.plt3, tempgrass.plt4, tempgrass.plt5, tempgrass.plt6,
+             tempgrass.plt7, tempgrass.plt8, tempgrass.plt9, ncol=3)
+
+
+tempgrass.CV <- 100 * tempgrass.brt$cv.statistics$correlation.mean
+tempgrass.CV.se <- 100 * tempgrass.brt$cv.statistics$correlation.se
+print(c(tempgrass.CV, tempgrass.CV.se))
+
+
+# tropical grasslands/savannas
+TOS.cor.tropgrass.brt
+dim(TOS.cor.tropgrass.brt)
+colnames(TOS.cor.tropgrass.brt)
+
+## boosted regression tree
+tropgrass.brt <- gbm.step(TOS.cor.tropgrass.brt, gbm.x = attr(TOS.cor.tropgrass.brt, "names")[c(2:length(colnames(TOS.cor.tropgrass.brt)))],
+                    gbm.y = attr(TOS.cor.tropgrass.brt, "names")[1], family="gaussian", max.trees=100000,
+                    tolerance = 0.002, learning.rate = 0.001, bag.fraction=0.75,
+                    tree.complexity = 2, silent=F, tolerance.method = "auto")
+
+summary(tropgrass.brt)
+tropgrass.brt.summ <- summary(tropgrass.brt)
+
+# plots
+tropgrass.ri.plt <- ggplot(tropgrass.brt.summ) +
+  geom_bar(aes(x=reorder(row.names(tropgrass.brt.summ), rel.inf), y=rel.inf), stat="identity", fill="blue", alpha=0.7)
+tropgrass.ri.plt + coord_flip() +
+  ylab("relative influence (tropical grassland/savanna)") + xlab("")
+tropgrass.ri.plt.flip <- tropgrass.ri.plt + coord_flip() +
+  ylab("relative influence (tropical grassland/savanna)") + xlab("")
+
+## plot predicted relationships of top x variables
+topNvars <- 9 # x
+topNvar.names <- tropgrass.brt.summ[1:topNvars,]$var
+plotNvec <- paste("tropgrass.plt",1:topNvars,sep="")
+for (v in 1:topNvars) {
+  var.dat <- as.data.frame(plot.gbm(tropgrass.brt, i.var=v, continuous.resolution = 100, return.grid=T))
+  colnames(var.dat) <- c("V1", "V2")
+  assign(plotNvec[v], ggplot(data=var.dat) +
+           geom_line(aes(x = V1, y = V2), col="blue") +
+           xlab(topNvar.names[v]) +
+           ylab("log10 [Hg]"))
+}
+
+grid.arrange(tropgrass.plt1, tropgrass.plt2, tropgrass.plt3, tropgrass.plt4, tropgrass.plt5, tropgrass.plt6,
+             tropgrass.plt7, tropgrass.plt8, tropgrass.plt9, ncol=3)
+
+tropgrass.CV <- 100 * tropgrass.brt$cv.statistics$correlation.mean
+tropgrass.CV.se <- 100 * tropgrass.brt$cv.statistics$correlation.se
+print(c(tropgrass.CV, tropgrass.CV.se))
+
+
+# dryland/xeric
+TOS.cor.dryxeric.brt
+dim(TOS.cor.dryxeric.brt)
+colnames(TOS.cor.dryxeric.brt)
+
+## boosted regression tree
+dryxeric.brt <- gbm.step(TOS.cor.dryxeric.brt, gbm.x = attr(TOS.cor.dryxeric.brt, "names")[c(2:length(colnames(TOS.cor.dryxeric.brt)))],
+                    gbm.y = attr(TOS.cor.dryxeric.brt, "names")[1], family="gaussian", max.trees=100000,
+                    tolerance = 0.002, learning.rate = 0.001, bag.fraction=0.75,
+                    tree.complexity = 2, silent=F, tolerance.method = "auto")
+
+summary(dryxeric.brt)
+dryxeric.brt.summ <- summary(dryxeric.brt)
+
+# plots
+dryxeric.ri.plt <- ggplot(dryxeric.brt.summ) +
+  geom_bar(aes(x=reorder(row.names(dryxeric.brt.summ), rel.inf), y=rel.inf), stat="identity", fill="blue", alpha=0.7)
+dryxeric.ri.plt + coord_flip() +
+  ylab("relative influence (dryland/xeric)") + xlab("")
+dryxeric.ri.plt.flip <- dryxeric.ri.plt + coord_flip() +
+  ylab("relative influence (dryland/xeric)") + xlab("")
+
+## plot predicted relationships of top x variables
+topNvars <- 9 # x
+topNvar.names <- dryxeric.brt.summ[1:topNvars,]$var
+plotNvec <- paste("dryxeric.plt",1:topNvars,sep="")
+for (v in 1:topNvars) {
+  var.dat <- as.data.frame(plot.gbm(dryxeric.brt, i.var=v, continuous.resolution = 100, return.grid=T))
+  colnames(var.dat) <- c("V1", "V2")
+  assign(plotNvec[v], ggplot(data=var.dat) +
+           geom_line(aes(x = V1, y = V2), col="blue") +
+           xlab(topNvar.names[v]) +
+           ylab("log10 [Hg]"))
+}
+
+grid.arrange(dryxeric.plt1, dryxeric.plt2, dryxeric.plt3, dryxeric.plt4, dryxeric.plt5, dryxeric.plt6,
+             dryxeric.plt7, dryxeric.plt8, dryxeric.plt9, ncol=3)
+
+dryxeric.CV <- 100 * dryxeric.brt$cv.statistics$correlation.mean
+dryxeric.CV.se <- 100 * dryxeric.brt$cv.statistics$correlation.se
+print(c(dryxeric.CV, dryxeric.CV.se))
+
+
+# plot rel infl plots for each biome together
+grid.arrange(tempfor.ri.plt.flip, Medfor.ri.plt.flip, tempgrass.ri.plt.flip, tropgrass.ri.plt.flip,
+             dryxeric.ri.plt.flip, ncol=3)
+biome.brt.CVs <- data.frame(CV=c(tempfor.CV, Medfor.CV, tempgrass.CV, tropgrass.CV, dryxeric.CV),
+                            CV.se=c(tempfor.CV.se, Medfor.CV.se, tempgrass.CV.se, tropgrass.CV.se, dryxeric.CV.se))
+rownames(biome.brt.CVs) <- c("tempfor", "Medfor", "tempgrass", "tropgrass", "dryxeric")
+biome.brt.CVs
+
+# merge brt outputs per biome to single table
+biome.brt1 <- merge(tempfor.brt.summ, Medfor.brt.summ, by="var", all.x=T, all.y=T)
+biome.brt2 <- merge(biome.brt1, tempgrass.brt.summ, by="var", all.x=T, all.y=T)
+biome.brt3 <- merge(biome.brt2, tropgrass.brt.summ, by="var", all.x=T, all.y=T)
+biome.brt <- merge(biome.brt3, dryxeric.brt.summ, by="var", all.x=T, all.y=T)
+colnames(biome.brt)[2:6] <- rownames(biome.brt.CVs)
+biome.brt$relInfl.mn <- rowMeans(biome.brt[,2:6], na.rm=T)
+biome.brt
+biome.sort <- biome.brt[order(biome.brt$relInfl.mn, decreasing=T),]
+biome.sort
+
+# plot relative influence in multi-column plot
+library(data.table)
+biome.sort2 <- biome.sort[,c('var','tempfor','Medfor','tempgrass','tropgrass','dryxeric')]
+biome.mlt <- reshape2::melt(biome.sort2, id.vars = 1, verbose=T)
+biome.mlt
+head(biome.mlt)
+write.csv(biome.sort, file="biomes_brt_relInfl.csv", row.names=F)
+
+ggplot(biome.mlt, aes(x = var, y = value)) + 
+  geom_bar(aes(fill = variable), stat = "identity", position = "dodge") +
+  coord_flip() + xlab("relative influence") + ylab("") + theme(axis.text.y=element_text(size=8)) +
+  labs(fill = 'biome')
+
+ggplot(biome.mlt, aes(x = var, y = value)) + 
+  geom_bar(aes(fill = variable), stat = "identity", position = "stack") +
+  coord_flip() + ylab("relative influence") + xlab("") + theme(axis.text.y=element_text(size=8)) +
+  labs(fill = 'biome')
+
+
+#########################
+## BOS
 colnames(BOS.dat)
 BOS.test1 <- data.frame(SITEID=BOS.dat$SITEID, LAT=BOS.dat$LAT.x, LON=BOS.dat$LON.x, lHg=log10(BOS.dat$HgCOMP), lgs=log10(BOS.dat$gs.wmn),
                         lgtclay=logit(BOS.dat$CLAY/100), lgtsoilclay=logit(BOS.dat$soilclay/100),
@@ -1389,7 +2010,10 @@ BOS.test1 <- data.frame(SITEID=BOS.dat$SITEID, LAT=BOS.dat$LAT.x, LON=BOS.dat$LO
                         lAl=log10(BOS.dat$Al), lFe=log10(BOS.dat$Fe), lMn=log10(BOS.dat$Mn), lCu=log10(BOS.dat$CuICPMS),
                         lZn=log10(BOS.dat$ZnICPMS), lPb=log10(BOS.dat$PbICPMS), lSb=log10(BOS.dat$SbICPMS),
                         lNi=log10(BOS.dat$NiCPMS), lV=log10(BOS.dat$V), lKThU=log10(BOS.dat$KThU),
-                        lucat=BOS.dat$lucat, biome=BOS.dat$biome, geol=BOS.dat$lithgrp)
+                        lucat=BOS.dat$lucat, biome=BOS.dat$biome, geol=BOS.dat$lithgrp, soils=BOS.dat$soils,
+                        ferric4=BOS.dat$ferricpc4, ferric2=BOS.dat$ferricpc2, Alox=BOS.dat$Alox, 
+                        Feox=BOS.dat$Feox, Pox=BOS.dat$Pox)
+
 
 head(BOS.test1)
 dim(BOS.test1)
@@ -1453,6 +2077,9 @@ length(which(is.infinite(BOS.test$lNi)==T))
 length(which(is.infinite(BOS.test$lV)==T))
 length(which(is.infinite(BOS.test$lKThU)==T))
 
+testpts <- vect(cbind(BOS.test$LON, BOS.test$LAT), crs="+proj=longlat")
+terra::plot(testpts)
+
 # histograms
 hist(BOS.test$lHg, xlab="log10 [Hg]", main="")
 hist(BOS.test$lgs, xlab="log10 mean grain size", main="")
@@ -1494,7 +2121,7 @@ BOS.test$lgpp[(which(is.infinite(BOS.test$lgpp)==T))] <- NA
 
 ## correlation matrix
 BOS.cor <- na.omit(BOS.test[,c("lHg","lgs","lgtclay","lgtsilt","pH15","lelecond","lLOI","prescott","soilH20","llai","lgpp","soillN","soillP",
-                               "lAl","lFe","lMn","lCu","lZn","lPb","lSb","lNi","lV","lKThU")])
+                               "lAl","lFe","lMn","lCu","lZn","lPb","lSb","lNi","lV","lKThU","ferric2","Alox","Feox","Pox")])
 class(BOS.cor)
 dim(BOS.cor)
 head(BOS.cor)
@@ -1503,11 +2130,11 @@ round(cor(BOS.cor, method="spearman"), 2)
 ## variance inflation
 usdm::vif(BOS.cor)
 usdm::vif(BOS.cor[,c("lHg","lgs","lgtclay","pH15","lelecond","lLOI","prescott","soilH20","llai","soillN","soillP",
-                     "lAl","lMn","lCu","lPb","lSb","lNi","lKThU")])
+                     "lAl","lMn","lCu","lPb","lSb","lNi","lKThU","ferric2","Alox","Feox","Pox")])
 
 ## limit variables after VIF inspection
 BOS.test.brt <- BOS.cor[,c("lHg","lgs","lgtclay","pH15","lelecond","lLOI","prescott","soilH20","llai","soillN","soillP",
-                           "lAl","lMn","lCu","lPb","lSb","lNi","lKThU")]
+                           "lAl","lMn","lCu","lPb","lSb","lNi","lKThU","ferric2","Alox","Feox","Pox")]
 dim(BOS.test.brt)
 colnames(BOS.test.brt)
 
@@ -1522,6 +2149,26 @@ barplot(summary(BOS.brt)$rel.inf, names.arg = summary(BOS.brt)$var, xlab="relati
 gbm.plot(BOS.brt, smooth=T, rug=T, n.plots=12, common.scale=T, write.title=F, show.contrib=T, 
          y.label="log10 [Hg]")
 
+BOS.brt.fitted <- predict.gbm(BOS.brt, BOS.test.brt, n.trees=BOS.brt$gbm.call$best.trees, type='response')
+plot(BOS.test.brt$lHg, BOS.brt.fitted, xlab = "observed ", ylab = "fitted")
+abline(0, 1, col = "red")
+plot(BOS.brt, n.trees = BOS.brt$gbm.call$best.trees,
+     write.title = FALSE)
+BOS.brt.results <- data.frame(
+  obs = BOS.test.brt$lHg,
+  fit = BOS.brt.fitted
+)
+
+BOS.brt.partial.deps <- list()
+BOS.pred.names <- names(BOS.test.brt)[2:18]
+
+for(i in seq_along(BOS.pred.names)) {
+  # Use gbm.plot to get partial dependency values
+  # Set plot.layout = c(1,1) to prevent automatic plotting
+  pd_data <- plot.gbm(BOS.brt, i.var=i, continuous.resolution = eq.sp.pts, return.grid=T)
+  BOS.brt.partial.deps[[BOS.pred.names[i]]] <- pd_data
+  write.csv(BOS.brt.partial.deps[[i]], file = paste0("BOS_", BOS.pred.names[i], "_partial_deps.csv"))
+}
 
 gbm.plot(BOS.brt)
 gbm.plot.fits(BOS.brt)
@@ -1535,14 +2182,20 @@ print(c(BOS.brt.CV.cor, BOS.brt.CV.cor.se))
 # randomised BRT using distance matrix ##
 #########################################
 TOS.brt.dat.rsmp <- na.omit(TOS.test[,c("LON","LAT","lHg","lgs","lgtclay","pH15","lelecond","lLOI","prescott","soilH20","llai","soillN","soillP",
-                               "lAl","lMn","lCu","lPb","lSb","lNi","lKThU")])
+                               "lAl","lMn","lCu","lPb","lSb","lNi","lKThU","ferric2","Alox","Feox","Pox")])
+
+# remove infinite values
+TOS.brt.dat.rsmp <- TOS.brt.dat.rsmp[!is.infinite(rowSums(TOS.brt.dat.rsmp)), ]
+
 dim(TOS.brt.dat.rsmp)
 head(TOS.brt.dat.rsmp)
 TOS.brt.dat.rsmp.coords <- as.data.frame(TOS.brt.dat.rsmp[,c("LON","LAT")])
 dim(TOS.brt.dat.rsmp.coords)
 head(TOS.brt.dat.rsmp.coords)
 
-# Haversine distance matrix
+
+
+# recalculate Haversine distance matrix
 coords.TOS.brt.dat.rsmp <- data.frame(
   longitude = TOS.brt.dat.rsmp$LON,
   latitude = TOS.brt.dat.rsmp$LAT
@@ -1587,7 +2240,7 @@ select_distant_points <- function(df, min_dist, target_n = NULL, dist_matrix,
   # convert coordinates to matrix for distance calculation
   coords <- as.matrix(df[, c(x_col, y_col)])
   
-  # initialize variables
+  # Initialize variables
   n_points <- nrow(df)
   selected <- logical(n_points)
   
@@ -1776,6 +2429,7 @@ for (b in 1:biter) {
                                                                       units = "mins"), 2), "minutes elapsed")))
 } # end b
 
+
 # kappa method to reduce effects of outliers on bootstrap estimates
 kappa <- 2
 kappa.n <- ntraincols
@@ -1886,6 +2540,14 @@ for (v in 1:topNvars) {
 }
 (plt1 + plt2 + plt3) / (plt4 + plt5 + plt6) / (plt7 + plt8 + plt9)
 
+# export results
+for (v in 1:ntraincols) {
+  data <- data.frame(x=val.med[,traincols[v]], mn=pred.med[,traincols[v]],
+                         up=pred.up[,traincols[v]], lo=pred.lo[,traincols[v]])
+  row.names(data) <- NULL
+  write.csv(data, file=paste(traincols[v], "Pred.csv", sep=""), row.names=F)
+}
+
 
 
 ##############################################################
@@ -1893,7 +2555,6 @@ for (v in 1:topNvars) {
 ##############################################################
 
 ## functions
-# Akaike's information criterion corrected for sample size
 AICc <- function(...) {
   models <- list(...)
   num.mod <- length(models)
@@ -1912,26 +2573,37 @@ AICc <- function(...) {
   return(AICc.vec)
 }
 
-# information criterion transformations
 delta.IC <- function(x) x - min(x) ## where x is a vector of an IC
 weight.IC <- function(x) (exp(-0.5*x))/sum(exp(-0.5*x)) ## Where x is a vector of dIC
 
-# whether a range contains zero
 contains_zero_sign <- function(x_min, x_max) {
   return(sign(x_min) * sign(x_max) <= 0)
 }
 
-# reformulate test data frame
 colnames(TOS.dat)
 TOS.cl.test <- data.frame(SITEID=TOS.dat$SITEID, LAT=TOS.dat$LAT.x, LON=TOS.dat$LON.x, state=TOS.dat$STATE,
                           lHg=log10(TOS.dat$HgCOMP), lucat=TOS.dat$lucat, landuse=TOS.dat$landuse,
-                          biome=TOS.dat$biome, geol=TOS.dat$lithgrp)
+                          biome=TOS.dat$biome, geol=TOS.dat$lithgrp, soil=TOS.dat$soils)
 head(TOS.cl.test)
+
+table(TOS.cl.test$state)
+sum(table(TOS.cl.test$state))
+table(TOS.cl.test$lucat)
+sum(table(TOS.cl.test$lucat))
+table(TOS.cl.test$landuse)
+sum(table(TOS.cl.test$landuse))
+table(TOS.cl.test$geol)
+sum(table(TOS.cl.test$geol))
+which(is.na(TOS.cl.test$geol)==T)
+table(TOS.cl.test$soil)
+sum(table(TOS.cl.test$soil))
+
+dim(TOS.cl.test)
+dim(na.omit(TOS.cl.test))
 
 TOS.lm <- na.omit(TOS.cl.test)
 dim(TOS.lm)
 head(TOS.lm)
-
 TOS.lm.coords <- as.data.frame(TOS.lm[,c("LON","LAT")])
 dim(TOS.lm.coords)
 head(TOS.lm.coords)
@@ -1946,15 +2618,22 @@ TOS.lm_haversine_matrix <- distm(
 dim(TOS.lm_haversine_matrix)
 range(TOS.lm_haversine_matrix)
 
-min.dist <- 175000 # compromise between reducing spatial autocorrelation & sufficient sample size
+min.dist <- 175000
 
-# loop controls
-iter <- 1000
-itdiv <- iter/10
+coords.ran <- select_distant_points(df = TOS.lm.coords, min_dist = min.dist,
+                                    dist_matrix = TOS.lm_haversine_matrix, x_col = "LON", y_col = "LAT")
+dim(coords.ran)
+head(coords.ran)
+coords.ran.pts <- vect(cbind(coords.ran$LON, 
+                             coords.ran$LAT), crs="+proj=longlat")
+terra::plot(coords.ran.pts)
 
-## state
-table(TOS.ran.subset$state)
+# subset random points
+TOS.ran.subset <- na.omit(TOS.lm[as.numeric(row.names(coords.ran)), ])
+head(TOS.ran.subset)
+dim(TOS.ran.subset)
 
+# by state
 table(TOS.ran.subset$state)
 HgXstate.stats.ran <- TOS.ran.subset %>%
   group_by(state) %>%
@@ -1970,8 +2649,30 @@ HgXstate.stats.ran <- TOS.ran.subset %>%
   )
 HgXstate.stats.ran
 na.omit(HgXstate.stats.ran)
+hist(TOS.ran.subset$lHg)
 
-# resampling loop                             
+
+mod1 <- lm(lHg ~ state, data=TOS.ran.subset)
+mod.null <- lm(lHg ~ 1, data=TOS.ran.subset)
+check_model(mod1, detrend=T)
+plot_model(mod1)
+pmmod1 <- plot_model(mod1)
+pmmod1.coef <- data.frame(state=as.character(pmmod1[[1]]$term), lo=pmmod1[[1]]$conf.low, up=pmmod1[[1]]$conf.high)
+
+pmmod1.coef$nonzero <- ifelse(contains_zero_sign(pmmod1.coef$lo, pmmod1.coef$up)==F, 1, 0)
+pmmod1.coef
+nonzerosum <- sum(pmmod1.coef$nonzero)
+pmmod1.coef[which(pmmod1.coef$nonzero==1),]$state
+
+wAICc <- weight.IC(delta.IC(c(AICc(mod1),AICc(mod.null))))
+ER <- wAICc[1]/wAICc[2]
+ER
+
+
+# resampling loop
+iter <- 1000
+itdiv <- iter/10
+
 # storage matrix
 table(TOS.lm$state)
 nlevels <- length(table(TOS.lm$state))
@@ -2024,6 +2725,10 @@ for (i in 1:iter) {
   
   if (i %% itdiv == 0) print(paste("iter = ", i, sep=""))
 }
+
+# ER
+median(stor.mat[,"ER"])
+quantile(stor.mat[,"ER"], probs=c(0.025,0.975))
 
 head(stor.mat)
 state.labs <- c("NSW","NT","QLD","SA","TAS","VIC","WA")
@@ -2180,6 +2885,7 @@ if (dirlenWA == 0) {
     WAneg <- 0
   }
 
+
 nznegdirrslts <- c(NSWneg, NTneg, QLDneg, SAneg, TASneg, VICneg, WAneg)
 nzposdirrslts <- c(NSWpos, NTpos, QLDpos, SApos, TASpos, VICpos, WApos)
 
@@ -2187,7 +2893,7 @@ results.out <- data.frame(state=state.labs, nonzero=nzrslts/iter, negdir=nznegdi
                           posdir=nzposdirrslts/iter)
 results.out
 
-# evidence ratios
+# ER
 10^median(log10(stor.mat[,"ER"]))
 quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
 10^quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
@@ -2201,7 +2907,7 @@ abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.9), col="blue", lwd=2, lty=2)
 
 
 
-## by biome
+# by biome
 table(TOS.ran.subset$biome)
 
 table(TOS.ran.subset$biome)
@@ -2415,7 +3121,7 @@ results.out <- data.frame(biome=biomedir.lab, nonzero=nzrslts/iter, negdir=nzneg
                           posdir=nzposdirrslts/iter)
 results.out
 
-# evidence ratios
+# ER
 10^median(log10(stor.mat[,"ER"]))
 quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
 10^quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
@@ -2429,7 +3135,7 @@ abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.9), col="blue", lwd=2, lty=2)
 
 
 
-## lithology
+# lithology
 table(TOS.ran.subset$geol)
 
 table(TOS.ran.subset$geol)
@@ -2663,7 +3369,385 @@ results.out <- data.frame(geol=geoldir.lab, nonzero=nzrslts/iter, negdir=nznegdi
                           posdir=nzposdirrslts/iter)
 results.out
 
-# evidence ratios
+# ER
+10^median(log10(stor.mat[,"ER"]))
+quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
+10^quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
+quantile(log10(stor.mat[,"ER"]), probs=c(0.1,0.9))
+10^quantile(log10(stor.mat[,"ER"]), probs=c(0.1,0.9))
+
+hist(log10(stor.mat[,"ER"]), main="", xlab="log10 ER")
+abline(v=median(log10(stor.mat[,"ER"])), col="red", lwd=2, lty=2)
+abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.1), col="blue", lwd=2, lty=2)
+abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.9), col="blue", lwd=2, lty=2)
+
+
+# soil
+table(TOS.ran.subset$soil)
+
+table(TOS.ran.subset$soil)
+HgXsoil.stats.ran <- TOS.ran.subset %>%
+  group_by(soil) %>%
+  summarise(
+    mean = mean(lHg, na.rm = TRUE),
+    median = median(lHg, na.rm = TRUE), 
+    var = var(lHg, na.rm = TRUE),
+    sd = sd(lHg, na.rm = TRUE),
+    se = sd/sqrt(n()),
+    upper = quantile(lHg, probs=0.975, na.rm = TRUE),
+    lower = quantile(lHg, probs=0.025, na.rm = TRUE),
+    n = n()
+  )
+HgXsoil.stats.ran
+na.omit(HgXsoil.stats.ran)
+
+# resampling loop
+# storage matrix
+table(TOS.lm$soil)
+TOS.lm.soils.nolake <- TOS.lm[which(TOS.lm$soil != "lake"),]
+table(TOS.lm.soils.nolake$soil)
+nlevels <- length(table(TOS.lm.soils.nolake$soil))
+stor.mat <- matrix(data=NA, nrow=iter, ncol=2+2*nlevels)
+soildir.lab <- paste("soil",attr(table(TOS.lm.soils.nolake$soil), "names"),"dir",sep="")
+colnames(stor.mat) <- c("ER", "nonzerosum",
+                        paste("soil",attr(table(TOS.lm.soils.nolake$soil), "names"),sep=""),soildir.lab)
+head(stor.mat)
+
+for (i in 1:iter) {
+  # generate random coords
+  coords.ran <- select_distant_points(df = TOS.lm.coords, min_dist = min.dist,
+                                      dist_matrix = TOS.lm_haversine_matrix, x_col = "LON", y_col = "LAT")
+  
+  # subset random points for data summaries
+  TOS.ran.subset <- na.omit(TOS.lm.soils.nolake[as.numeric(row.names(coords.ran)), ])
+  
+  # fit linear models
+  mod1 <- lm(lHg ~ soil, data=TOS.ran.subset) # class level model
+  mod.null <- lm(lHg ~ 1, data=TOS.ran.subset) # null model
+  
+  # coefficient boundaries
+  pmmod1 <- plot_model(mod1)
+  pmmod1.coef <- data.frame(soil=as.character(pmmod1[[1]]$term), lo=pmmod1[[1]]$conf.low,
+                            up=pmmod1[[1]]$conf.high)
+  
+  # determine if zero is in the confidence interval
+  pmmod1.coef$nonzero <- ifelse(contains_zero_sign(pmmod1.coef$lo, pmmod1.coef$up)==F, 1, 0)
+  
+  # determine if negative or positive relationship
+  pmmod1.coef$dir <- ifelse(sign(pmmod1.coef$lo) == -1 & sign(pmmod1.coef$up) == -1, -1, 0)
+  pmmod1.coef$dir <- ifelse(sign(pmmod1.coef$lo) == 1 & sign(pmmod1.coef$up) == 1, 1, pmmod1.coef$dir)
+  
+  # how many variables are non-zero?
+  stor.mat[i,"nonzerosum"] <- sum(pmmod1.coef$nonzero)
+  
+  # which category levels are non-zero?
+  nzsoils <- pmmod1.coef[which(pmmod1.coef$nonzero==1),]$soil
+  stor.mat[i, which(colnames(stor.mat) %in% nzsoils)] <- 1
+  
+  # for non-zeros, what is the direction?
+  nzsoilssdir <- paste(nzsoils,"dir",sep="")
+  stor.mat[i, which(colnames(stor.mat) %in% nzsoilssdir)] <- pmmod1.coef$dir[which(pmmod1.coef$dir != 0)]
+  
+  # AICc model comparison
+  wAICc <- weight.IC(delta.IC(c(AICc(mod1),AICc(mod.null))))
+  
+  # store evidence ratio
+  stor.mat[i,"ER"] <- wAICc[1]/wAICc[2]
+  
+  if (i %% itdiv == 0) print(paste("iter = ", i, sep=""))
+}
+
+# ER
+median(stor.mat[,"ER"], na.rm=T)
+quantile(stor.mat[,"ER"], probs=c(0.025,0.975), na.rm=T)
+
+head(stor.mat)
+soil.labs <- c("CALC","CHROMO","DERMO","FERRO","HYDRO","KANDO","KURO","ORGANO","PODO","RUDO","SODO","TENO","VERTO")
+lennzCALC <- length(table(stor.mat[,"soilcalcarosol"]))
+lennzCHROMO <- length(table(stor.mat[,"soilchromosol"]))
+lennzDERMO <- length(table(stor.mat[,"soildermosol"]))
+lennzFERRO <- length(table(stor.mat[,"soilferrosol"]))
+lennzHYDRO <- length(table(stor.mat[,"soilhydrosol"]))
+lennzKANDO <- length(table(stor.mat[,"soilkandosol"]))
+lennzKURO <- length(table(stor.mat[,"soilkurosol"]))
+lennzORGANO <- length(table(stor.mat[,"soilorganosol"]))
+lennzPODO <- length(table(stor.mat[,"soilpodosol"]))
+lennzRUDO <- length(table(stor.mat[,"soilrudosol"]))
+lennzSODO <- length(table(stor.mat[,"soilsodosol"]))
+lennzTENO <- length(table(stor.mat[,"soiltenosol"]))
+lennzVERTO<- length(table(stor.mat[,"soilvertosol"]))
+
+nzrslts <- c(ifelse(lennzCALC==1, as.numeric(table(stor.mat[,"soilcalcarosol"])), 0),
+             ifelse(lennzCHROMO==1, as.numeric(table(stor.mat[,"soilchromosol"])), 0),
+             ifelse(lennzDERMO==1, as.numeric(table(stor.mat[,"soildermosol"])), 0),
+             ifelse(lennzFERRO==1, as.numeric(table(stor.mat[,"soilferrosol"])), 0),
+             ifelse(lennzHYDRO==1, as.numeric(table(stor.mat[,"soilhydrosol"])), 0),
+             ifelse(lennzKANDO==1, as.numeric(table(stor.mat[,"soilkandosol"])), 0),
+             ifelse(lennzKURO==1, as.numeric(table(stor.mat[,"soilkurosol"])), 0),
+             ifelse(lennzORGANO==1, as.numeric(table(stor.mat[,"soilorganosol"])), 0),
+             ifelse(lennzPODO==1, as.numeric(table(stor.mat[,"soilpodosol"])), 0),
+             ifelse(lennzRUDO==1, as.numeric(table(stor.mat[,"soilrudosol"])), 0),
+             ifelse(lennzSODO==1, as.numeric(table(stor.mat[,"soilsodosol"])), 0),
+             ifelse(lennzTENO==1, as.numeric(table(stor.mat[,"soiltenosol"])), 0),
+             ifelse(lennzVERTO==1, as.numeric(table(stor.mat[,"soilvertosol"])), 0))
+
+dirCALCtab <- table(stor.mat[,"soilcalcarosol"])
+dirCHROMOtab <- table(stor.mat[,"soilchromosol"])
+dirDERMOtab <- table(stor.mat[,"soildermosol"])
+dirFERROtab <- table(stor.mat[,"soilferrosol"])
+dirHYDROtab <- table(stor.mat[,"soilhydrosol"])
+dirKANDOtab <- table(stor.mat[,"soilkandosol"])
+dirKUROtab <- table(stor.mat[,"soilkurosol"])
+dirORGANOTab <- table(stor.mat[,"soilorganosol"])
+dirPODOtab <- table(stor.mat[,"soilpodosol"])
+dirRUDOtab <- table(stor.mat[,"soilrudosol"])
+dirSODOtab <- table(stor.mat[,"soilsodosol"])
+dirTENOTab <- table(stor.mat[,"soiltenosol"])
+dirVERTOTab <- table(stor.mat[,"soilvertosol"])
+
+dirlenCALC <- length(dirCALCtab)
+dirlenCHROMO <- length(dirCHROMOtab)
+dirlenDERMO <- length(dirDERMOtab)
+dirlenFERRO <- length(dirFERROtab)
+dirlenHYDRO <- length(dirHYDROtab)
+dirlenKANDO <- length(dirKANDOtab)
+dirlenKURO <- length(dirKUROtab)
+dirlenORGANO <- length(dirORGANOTab)
+dirlenPODO <- length(dirPODOtab)
+dirlenRUDO <- length(dirRUDOtab)
+dirlenSODO <- length(dirSODOtab)
+dirlenTENO <- length(dirTENOTab)
+dirlenVERTO <- length(dirVERTOTab)
+
+if (dirlenCALC == 0) {
+  CALCpos <- 0
+  CALCneg <- 0
+} else if (dirlenCALC == 1 & as.numeric(attr(dirCALCtab,"names")[1]) == 1) {
+  CALCpos <- as.numeric(dirCALCtab)[1]
+  CALCneg <- 0
+} else if (dirlenCALC == 1 & as.numeric(attr(dirCALCtab,"names")[1]) == -1) {
+  CALCpos <- 0
+  CALCneg <- as.numeric(dirCALCtab)[1]
+} else if (dirlenCALC == 2) {
+  CALCneg <- as.numeric(dirCALCtab)[1]
+  CALCpos <- as.numeric(dirCALCtab)[2]
+} else {
+  CALCpos <- 0
+  CALCneg <- 0
+}
+
+if (dirlenCHROMO == 0) {
+  CHROMOpos <- 0
+  CHROMOneg <- 0
+} else if (dirlenCHROMO == 1 & as.numeric(attr(dirCHROMOtab,"names")[1]) == 1) {
+  CHROMOpos <- as.numeric(dirCHROMOtab)[1]
+  CHROMOneg <- 0
+} else if (dirlenCHROMO == 1 & as.numeric(attr(dirCHROMOtab,"names")[1]) == -1) {
+  CHROMOpos <- 0
+  CHROMOneg <- as.numeric(dirCHROMOtab)[1]
+} else if (dirlenCHROMO == 2) {
+  CHROMOneg <- as.numeric(dirCHROMOtab)[1]
+  CHROMOpos <- as.numeric(dirCHROMOtab)[2]
+} else {
+  CHROMOpos <- 0
+  CHROMOneg <- 0
+}
+
+if (dirlenDERMO == 0) {
+  DERMOpos <- 0
+  DERMOneg <- 0
+} else if (dirlenDERMO == 1 & as.numeric(attr(dirDERMOtab,"names")[1]) == 1) {
+  DERMOpos <- as.numeric(dirDERMOtab)[1]
+  DERMOneg <- 0
+} else if (dirlenDERMO == 1 & as.numeric(attr(dirDERMOtab,"names")[1]) == -1) {
+  DERMOpos <- 0
+  DERMOneg <- as.numeric(dirDERMOtab)[1]
+} else if (dirlenDERMO == 2) {
+  DERMOneg <- as.numeric(dirDERMOtab)[1]
+  DERMOpos <- as.numeric(dirDERMOtab)[2]
+} else {
+  DERMOpos <- 0
+  DERMOneg <- 0
+}
+
+if (dirlenFERRO == 0) {
+  FERROpos <- 0
+  FERROneg <- 0
+} else if (dirlenFERRO == 1 & as.numeric(attr(dirFERROtab,"names")[1]) == 1) {
+  FERROpos <- as.numeric(dirFERROtab)[1]
+  FERROneg <- 0
+} else if (dirlenFERRO == 1 & as.numeric(attr(dirFERROtab,"names")[1]) == -1) {
+  FERROpos <- 0
+  FERROneg <- as.numeric(dirFERROtab)[1]
+} else if (dirlenFERRO == 2) {
+  FERROneg <- as.numeric(dirFERROtab)[1]
+  FERROpos <- as.numeric(dirFERROtab)[2]
+} else {
+  FERROpos <- 0
+  FERROneg <- 0
+}
+
+if (dirlenHYDRO == 0) {
+  HYDROpos <- 0
+  HYDROneg <- 0
+} else if (dirlenHYDRO == 1 & as.numeric(attr(dirHYDROtab,"names")[1]) == 1) {
+  HYDROpos <- as.numeric(dirHYDROtab)[1]
+  HYDROneg <- 0
+} else if (dirlenHYDRO == 1 & as.numeric(attr(dirHYDROtab,"names")[1]) == -1) {
+  HYDROpos <- 0
+  HYDROneg <- as.numeric(dirHYDROtab)[1]
+} else if (dirlenHYDRO == 2) {
+  HYDROneg <- as.numeric(dirHYDROtab)[1]
+  HYDROpos <- as.numeric(dirHYDROtab)[2]
+} else {
+  HYDROpos <- 0
+  HYDROneg <- 0
+}
+
+if (dirlenKANDO == 0) {
+  KANDOpos <- 0
+  KANDOneg <- 0
+} else if (dirlenKANDO == 1 & as.numeric(attr(dirKANDOtab,"names")[1]) == 1) {
+  KANDOpos <- as.numeric(dirKANDOtab)[1]
+  KANDOneg <- 0
+} else if (dirlenKANDO == 1 & as.numeric(attr(dirKANDOtab,"names")[1]) == -1) {
+  KANDOpos <- 0
+  KANDOneg <- as.numeric(dirKANDOtab)[1]
+} else if (dirlenKANDO == 2) {
+  KANDOneg <- as.numeric(dirKANDOtab)[1]
+  KANDOpos <- as.numeric(dirKANDOtab)[2]
+} else {
+  KANDOpos <- 0
+  KANDOneg <- 0
+}
+
+if (dirlenKURO == 0) {
+  KUROpos <- 0
+  KUROneg <- 0
+} else if (dirlenKURO == 1 & as.numeric(attr(dirKUROtab,"names")[1]) == 1) {
+  KUROpos <- as.numeric(dirKUROtab)[1]
+  KUROneg <- 0
+} else if (dirlenKURO == 1 & as.numeric(attr(dirKUROtab,"names")[1]) == -1) {
+  KUROpos <- 0
+  KUROneg <- as.numeric(dirKUROtab)[1]
+} else if (dirlenKURO == 2) {
+  KUROneg <- as.numeric(dirKUROtab)[1]
+  KUROpos <- as.numeric(dirKUROtab)[2]
+} else {
+  KUROpos <- 0
+  KUROneg <- 0
+}
+
+if (dirlenORGANO == 0) {
+  ORGANOpos <- 0
+  ORGANOneg <- 0
+} else if (dirlenORGANO == 1 & as.numeric(attr(dirORGANOTab,"names")[1]) == 1) {
+  ORGANOpos <- as.numeric(dirORGANOTab)[1]
+  ORGANOneg <- 0
+} else if (dirlenORGANO == 1 & as.numeric(attr(dirORGANOTab,"names")[1]) == -1) {
+  ORGANOpos <- 0
+  ORGANOneg <- as.numeric(dirORGANOTab)[1]
+} else if (dirlenORGANO == 2) {
+  ORGANOneg <- as.numeric(dirORGANOTab)[1]
+  ORGANOpos <- as.numeric(dirORGANOTab)[2]
+} else {
+  ORGANOpos <- 0
+  ORGANOneg <- 0
+}
+
+if (dirlenPODO == 0) {
+  PODOpos <- 0
+  PODOneg <- 0
+} else if (dirlenPODO == 1 & as.numeric(attr(dirPODOtab,"names")[1]) == 1) {
+  PODOpos <- as.numeric(dirPODOtab)[1]
+  PODOneg <- 0
+} else if (dirlenPODO == 1 & as.numeric(attr(dirPODOtab,"names")[1]) == -1) {
+  PODOpos <- 0
+  PODOneg <- as.numeric(dirPODOtab)[1]
+} else if (dirlenPODO == 2) {
+  PODOneg <- as.numeric(dirPODOtab)[1]
+  PODOpos <- as.numeric(dirPODOtab)[2]
+} else {
+  PODOpos <- 0
+  PODOneg <- 0
+}
+
+if (dirlenRUDO == 0) {
+  RUDOpos <- 0
+  RUDOneg <- 0
+} else if (dirlenRUDO == 1 & as.numeric(attr(dirRUDOtab,"names")[1]) == 1) {
+  RUDOpos <- as.numeric(dirRUDOtab)[1]
+  RUDOneg <- 0
+} else if (dirlenRUDO == 1 & as.numeric(attr(dirRUDOtab,"names")[1]) == -1) {
+  RUDOpos <- 0
+  RUDOneg <- as.numeric(dirRUDOtab)[1]
+} else if (dirlenRUDO == 2) {
+  RUDOneg <- as.numeric(dirRUDOtab)[1]
+  RUDOpos <- as.numeric(dirRUDOtab)[2]
+} else {
+  RUDOpos <- 0
+  RUDOneg <- 0
+}
+
+if (dirlenSODO == 0) {
+  SODOpos <- 0
+  SODOneg <- 0
+} else if (dirlenSODO == 1 & as.numeric(attr(dirSODOtab,"names")[1]) == 1) {
+  SODOpos <- as.numeric(dirSODOtab)[1]
+  SODOneg <- 0
+} else if (dirlenSODO == 1 & as.numeric(attr(dirSODOtab,"names")[1]) == -1) {
+  SODOpos <- 0
+  SODOneg <- as.numeric(dirSODOtab)[1]
+} else if (dirlenSODO == 2) {
+  SODOneg <- as.numeric(dirSODOtab)[1]
+  SODOpos <- as.numeric(dirSODOtab)[2]
+} else {
+  SODOpos <- 0
+  SODOneg <- 0
+}
+
+if (dirlenTENO == 0) {
+  TENOpos <- 0
+  TENOneg <- 0
+} else if (dirlenTENO == 1 & as.numeric(attr(dirTENOTab,"names")[1]) == 1) {
+  TENOpos <- as.numeric(dirTENOTab)[1]
+  TENOneg <- 0
+} else if (dirlenTENO == 1 & as.numeric(attr(dirTENOTab,"names")[1]) == -1) {
+  TENOpos <- 0
+  TENOneg <- as.numeric(dirTENOTab)[1]
+} else if (dirlenTENO == 2) {
+  TENOneg <- as.numeric(dirTENOTab)[1]
+  TENOpos <- as.numeric(dirTENOTab)[2]
+} else {
+  TENOpos <- 0
+  TENOneg <- 0
+}
+
+if (dirlenVERTO == 0) {
+  VERTOpos <- 0
+  VERTOneg <- 0
+} else if (dirlenVERTO == 1 & as.numeric(attr(dirVERTOTab,"names")[1]) == 1) {
+  VERTOpos <- as.numeric(dirVERTOTab)[1]
+  VERTOneg <- 0
+} else if (dirlenVERTO == 1 & as.numeric(attr(dirVERTOTab,"names")[1]) == -1) {
+  VERTOpos <- 0
+  VERTOneg <- as.numeric(dirVERTOTab)[1]
+} else if (dirlenVERTO == 2) {
+  VERTOneg <- as.numeric(dirVERTOTab)[1]
+  VERTOpos <- as.numeric(dirVERTOTab)[2]
+} else {
+  VERTOpos <- 0
+  VERTOneg <- 0
+}
+
+nznegdirrslts <- c(CALCneg, CHROMOneg, DERMOneg, FERROneg, HYDROneg, KANDOneg, KUROneg, ORGANOneg, PODOneg, RUDOneg, SODOneg, TENOneg, VERTOneg)
+nzposdirrslts <- c(CALCpos, CHROMOpos, DERMOpos, FERROpos, HYDROpos, KANDOpos, KUROpos, ORGANOpos, PODOpos, RUDOpos, SODOpos, TENOpos, VERTOpos)
+
+results.out <- data.frame(soil=soildir.lab, nonzero=nzrslts/iter, negdir=nznegdirrslts/iter,
+                          posdir=nzposdirrslts/iter)
+results.out
+
+# ER
 10^median(log10(stor.mat[,"ER"]))
 quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
 10^quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
@@ -2677,7 +3761,9 @@ abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.9), col="blue", lwd=2, lty=2)
 
 
 
-## landuse
+
+
+# landuse
 table(TOS.ran.subset$landuse)
 
 table(TOS.ran.subset$landuse)
@@ -2751,6 +3837,10 @@ for (i in 1:iter) {
   if (i %% itdiv == 0) print(paste("iter = ", i, sep=""))
 }
 
+# ER
+median(stor.mat[,"ER"])
+quantile(stor.mat[,"ER"], probs=c(0.025,0.975))
+
 head(stor.mat)
 landuse.labs <- c("CN","INT","PDA","PIA","PRN","WAT","WA")
 lennzCN <- length(table(stor.mat[,"landuseconservation/natural"]))
@@ -2767,6 +3857,7 @@ nzrslts <- c(ifelse(lennzCN==1, as.numeric(table(stor.mat[,"landuseconservation/
              ifelse(lennzPRN==1, as.numeric(table(stor.mat[,"landuseproduction-relatively natural"])), 0),
              ifelse(lennzWAT==1, as.numeric(table(stor.mat[,"landusewater"])), 0))
 
+
 dirCNtab <- table(stor.mat[,"landuseconservation/natural"])
 dirINTtab <- table(stor.mat[,"landuseintensive"])
 dirPDAtab <- table(stor.mat[,"landuseproduction-dryland agr"])
@@ -2780,6 +3871,7 @@ dirlenPDA <- length(dirPDAtab)
 dirlenPIA <- length(dirPIAtab)
 dirlenPRN <- length(dirPRNtab)
 dirlenWAT <- length(dirWATtab)
+
 
 if (dirlenCN == 0) {
   CNpos <- 0
@@ -2890,7 +3982,7 @@ results.out <- data.frame(landuse=landusedir.lab, nonzero=nzrslts/iter, negdir=n
                           posdir=nzposdirrslts/iter)
 results.out
 
-# evidence ratios
+# ER
 10^median(log10(stor.mat[,"ER"]))
 quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
 10^quantile(log10(stor.mat[,"ER"]), probs=c(0.025,0.975))
@@ -2903,6 +3995,321 @@ abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.1), col="blue", lwd=2, lty=2)
 abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.9), col="blue", lwd=2, lty=2)
 
 
+# by biome
+WWFecoregions <- vect("wwf_terr_ecos.shp") 
+WWFecoregions.crop <- crop(WWFecoregions, aus.ext)
+WWFecoregions.sf <- st_as_sf(WWFecoregions.crop)
+
+# join to biome key
+biome.key
+biome <- inner_join(WWFecoregions.sf, biome.key, by="BIOME")
+biome
+
+lHgXbiome.stats <- TOS.dat %>%
+  group_by(biome) %>%
+  summarise(
+    mean = mean(log10(HgCOMP), na.rm = TRUE),
+    median = median(log10(HgCOMP), na.rm = TRUE), 
+    var = var(log10(HgCOMP), na.rm = TRUE),
+    sd = sd(log10(HgCOMP), na.rm = TRUE),
+    se = sd/sqrt(n()),
+    upper = quantile(log10(HgCOMP), probs=0.975, na.rm = TRUE),
+    lower = quantile(log10(HgCOMP), probs=0.025, na.rm = TRUE),
+    n = n()
+  )
+lHgXbiome.stats
+
+# add mean Hg to biome shapefile
+biome$lHg <- 0
+
+table(biome$abbr)
+biome$lHg <- ifelse(biome$abbr == "DXS",
+                    lHgXbiome.stats[lHgXbiome.stats$biome=="DXS",]$mean, 0)
+biome$lHg <- ifelse(biome$abbr == "MFW",
+                    lHgXbiome.stats[lHgXbiome.stats$biome=="MFW",]$mean, biome$lHg)
+biome$lHg <- ifelse(biome$abbr == "TBMF",
+                    lHgXbiome.stats[lHgXbiome.stats$biome=="TBMF",]$mean, biome$lHg)
+biome$lHg <- ifelse(biome$abbr == "TGSS",
+                    lHgXbiome.stats[lHgXbiome.stats$biome=="TGSS",]$mean, biome$lHg)
+biome$lHg <- ifelse(biome$abbr == "TSGSS",
+                    lHgXbiome.stats[lHgXbiome.stats$biome=="TSGSS",]$mean, biome$lHg)
+biome$lHg <- ifelse(biome$abbr == "TSMBF",
+                    lHgXbiome.stats[lHgXbiome.stats$biome=="TSMBF",]$mean, biome$lHg)
+
+names(biome)
+summary(biome[,"lHg"])
+class(biome)
+
+# write
+st_write(biome, "biomeHg.shp", append=F)
+
+## reimport as spatVector to dissolve
+biome.sv <- vect("biomeHg.shp")
+biome.diss <- aggregate(biome.sv, "abbr")
+biome.sf <- st_as_sf(biome.diss)
+names(biome.sf)
+
+# write
+st_write(biome.sf, "biomeHg.shp", append=F)
+
+# 3D plot with ggplot2 and plot_gg
+biome3Dplot = ggplot(data=biome.sf, (aes(fill = mean_lHg))) +
+  scale_fill_viridis_c(direction=-1, alpha = .7, limits = c(1, 1.7)) +
+  theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank(), axis.line = element_blank(),
+                     axis.ticks = element_blank(), axis.text = element_blank(),
+                     legend.title = element_blank(), legend.position="none") + 
+  geom_sf()
+biome3Dplot
+plot_gg(biome3Dplot, multicore = TRUE, width=5, height=5,
+        scale=200, windowsize=c(1400,866), zoom = 0.4, phi = 30, shadow_intensity = 0.3,
+        offset_edges = T, raytrace = T, triangulate = T, anglebreaks=seq(50,60,0.1))
+render_snapshot()
+
+
+# by lithology
+lith.orig <- st_read("GeologicUnitPolygons1M.shp")
+names(lith.orig)
+attr(table(lith.orig$LITHOLOGY), 'names')
+
+lith.key
+lith <- inner_join(lith.orig, lith.key, by="LITHOLOGY")
+head(lith)
+class(lith)
+
+lHgXlith.stats <- TOS.dat %>%
+  group_by(lithgrp) %>%
+  summarise(
+    mean = mean(log10(HgCOMP), na.rm = TRUE),
+    median = median(log10(HgCOMP), na.rm = TRUE), 
+    var = var(log10(HgCOMP), na.rm = TRUE),
+    sd = sd(log10(HgCOMP), na.rm = TRUE),
+    se = sd/sqrt(n()),
+    upper = quantile(log10(HgCOMP), probs=0.975, na.rm = TRUE),
+    lower = quantile(log10(HgCOMP), probs=0.025, na.rm = TRUE),
+    n = n()
+  )
+lHgXlith.stats
+
+# add mean Hg to biome shapefile
+lith$lHg <- 0
+
+table(lith$LITHGRP)
+lith$lHg <- ifelse(lith$LITHGRP == "CAR",
+                    lHgXlith.stats[lHgXlith.stats$lithgrp=="CAR",]$mean, 0)
+lith$lHg <- ifelse(lith$LITHGRP == "FEL",
+                    lHgXlith.stats[lHgXlith.stats$lithgrp=="FEL",]$mean, lith$lHg)
+lith$lHg <- ifelse(lith$LITHGRP == "INT",
+                    lHgXlith.stats[lHgXlith.stats$lithgrp=="INT",]$mean, lith$lHg)
+lith$lHg <- ifelse(lith$LITHGRP == "MAF",
+                    lHgXlith.stats[lHgXlith.stats$lithgrp=="MAF",]$mean, lith$lHg)
+lith$lHg <- ifelse(lith$LITHGRP == "MET",
+                    lHgXlith.stats[lHgXlith.stats$lithgrp=="MET",]$mean, lith$lHg)
+lith$lHg <- ifelse(lith$LITHGRP == "OTH",
+                    lHgXlith.stats[lHgXlith.stats$lithgrp=="OTH",]$mean, lith$lHg)
+lith$lHg <- ifelse(lith$LITHGRP == "SIL",
+                    lHgXlith.stats[lHgXlith.stats$lithgrp=="SIL",]$mean, lith$lHg)
+
+# save to shapefile
+st_write(lith, "lithHg.shp", append=F)
+
+# re-import as spatVector
+lithHg <- vect("lithHg.shp")
+names(lithHg)
+
+# aggregate spatVector (dissolve)
+# creating and registering the cluster
+local.cluster <- parallel::makeCluster(
+  parallel::detectCores() - 1,
+  type = "PSOCK"
+)
+doParallel::registerDoParallel(cl = local.cluster)
+
+lithHg.diss <- aggregate(lithHg, fun='mean', by="LITHGRP", cores=cl, na.rm=T)
+parallel::stopCluster(cl = local.cluster)
+
+lithHg.diss
+names(lithHg.diss)
+lithHg.diss$mean_lHg
+
+# convert back to sf object
+lithHg.sf <- st_as_sf(lithHg.diss)
+lithHg.sf$mean_lHg
+str(lithHg.sf)
+str(lithHg.sf$mean_lHg)
+
+st_write(lithHg.sf, "lithHgDiss.shp", append=F)
+
+# change lHg to factor to avoid colour-scale errors
+lithHg.sf$lHgfact <- as.factor(lithHg.sf$mean_lHg)
+
+# 3D plot with ggplot2 and plot_gg
+lith3Dplot = ggplot(data=lithHg.sf, (aes(fill = lHgfact))) +
+  scale_fill_viridis_d(direction=-1, alpha = .7) +
+  scale_y_continuous(limits = c(1, 1.7)) +
+  theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank(), axis.line = element_blank(),
+                     axis.ticks = element_blank(), axis.text = element_blank(),
+                     legend.title = element_blank(), legend.position="none") + 
+  geom_sf()
+lith3Dplot
+plot_gg(lith3Dplot, multicore = TRUE, width=5, height=5,
+        scale=200, windowsize=c(1400,866), zoom = 0.4, phi = 30, shadow_intensity = 0.3,
+        offset_edges = T, raytrace = T, triangulate = T, anglebreaks=seq(50,60,0.1))
+render_snapshot()
+
+
+
+## by land use
+lnduse.orig <- rast('NLUM_v7_250_ALUMV8_2020_21_alb.tif')
+names(lnduse.orig)
+
+# convert to vector
+lnduse.sv <- as.polygons(lnduse.orig, aggregate=T, na.rm=T)
+names(lnduse.sv)
+lnduse.orig$PRIMV8N
+
+# convert to sf object
+lnduse.sf <- st_as_sf(lnduse.sv)
+names(lnduse.sf)
+table(lnduse.sf$TERTV8)
+
+# identify only first-order land-use categories
+lnduse.sf$plu <- as.numeric(substr(lnduse.sf$TERTV8, 1, 1))
+table(lnduse.sf$plu)
+
+# join to lu.key
+lu.key
+lnduse <- inner_join(lnduse.sf, lu.key, by="plu")
+head(lnduse)
+class(lnduse)
+
+lHgXlu.stats <- TOS.dat %>%
+  group_by(landuse) %>%
+  summarise(
+    mean = mean(log10(HgCOMP), na.rm = TRUE),
+    median = median(log10(HgCOMP), na.rm = TRUE), 
+    var = var(log10(HgCOMP), na.rm = TRUE),
+    sd = sd(log10(HgCOMP), na.rm = TRUE),
+    se = sd/sqrt(n()),
+    upper = quantile(log10(HgCOMP), probs=0.975, na.rm = TRUE),
+    lower = quantile(log10(HgCOMP), probs=0.025, na.rm = TRUE),
+    n = n()
+  )
+lHgXlu.stats
+
+# add mean Hg to landuse
+lnduse$lHg <- 0
+
+table(lnduse$plu)
+lnduse$lHg <- ifelse(lnduse$plu == 1,
+                   lHgXlu.stats[lHgXlu.stats$landuse=="conservation/natural",]$mean, 0)
+lnduse$lHg <- ifelse(lnduse$plu == 2,
+                     lHgXlu.stats[lHgXlu.stats$landuse=="intensive",]$mean, lnduse$lHg)
+lnduse$lHg <- ifelse(lnduse$plu == 3,
+                     lHgXlu.stats[lHgXlu.stats$landuse=="production-dryland agr",]$mean, lnduse$lHg)
+lnduse$lHg <- ifelse(lnduse$plu == 4,
+                     lHgXlu.stats[lHgXlu.stats$landuse=="production-irrigated agr",]$mean, lnduse$lHg)
+lnduse$lHg <- ifelse(lnduse$plu == 5,
+                     lHgXlu.stats[lHgXlu.stats$landuse=="production-relatively natural",]$mean, lnduse$lHg)
+lnduse$lHg <- ifelse(lnduse$plu == 6,
+                     lHgXlu.stats[lHgXlu.stats$landuse=="water",]$mean, lnduse$lHg)
+
+# save to shapefile
+st_write(lnduse, "lnduseHg.shp", append=F)
+
+# re-import as spatVector
+lnduseHg <- vect("lnduseHg.shp")
+names(lnduseHg)
+
+# aggregate spatVector (dissolve)
+# creating and registering the cluster
+local.cluster <- parallel::makeCluster(
+  parallel::detectCores() - 1,
+  type = "PSOCK"
+)
+doParallel::registerDoParallel(cl = local.cluster)
+
+lithHg.diss <- aggregate(lithHg, fun='mean', by="LITHGRP", cores=cl, na.rm=T)
+parallel::stopCluster(cl = local.cluster)
+
+lithHg.diss
+names(lithHg.diss)
+lithHg.diss$mean_lHg
+
+# convert back to sf object
+lithHg.sf <- st_as_sf(lithHg.diss)
+lithHg.sf$mean_lHg
+str(lithHg.sf)
+str(lithHg.sf$mean_lHg)
+
+st_write(lithHg.sf, "lithHgDiss.shp", append=F)
+
+
+## sugarcane https://www.abs.gov.au/statistics/industry/agriculture/sugarcane-experimental-regional-estimates-using-new-data-sources-and-methods/latest-release#data-downloads
+
+## Hg measures from geochem
+scXgeochem <- read.csv("geochemXsugarcane.csv", header=T)
+head(scXgeochem)
+scXgeochemProdgtZero <- scXgeochem[which(scXgeochem$sugarcane_scp2021 >= 0 & is.na(scXgeochem$sugarcane_scp2021)==F),]
+names(scXgeochemProdgtZero)
+
+# average by SA2
+scXgeochemProdgtZeroSA2 <- scXgeochemProdgtZero %>%
+  group_by(SA2_CODE21) %>%
+  summarise(
+    meanHg = mean(Hg, na.rm=T),
+    seHg = sd(Hg, na.rm=T)/sqrt(n()),
+    loHg = quantile(Hg, probs=0.025, na.rm=T),
+    upHg = quantile(Hg, probs=0.975, na.rm=T),
+    meanscp2021 = mean(sugarcane_scp2021, na.rm=T),
+    sescp2021 = sd(sugarcane_scp2021, na.rm=T)/sqrt(n()),
+    loscp2021 = quantile(sugarcane_scp2021, probs=0.025, na.rm=T),
+    upscp2021 = quantile(sugarcane_scp2021, probs=0.975, na.rm=T)
+)
+scXgeochemProdgtZeroSA2
+
+plot(log10(scXgeochemProdgtZeroSA2$meanscp2021), log10(scXgeochemProdgtZeroSA2$meanHg), xlab="log10 sugarcane production 2020/2021 (t)",
+     ylab="log10 Hg (ng/g)", pch=19)
+abline(lm(log10(scXgeochemProdgtZeroSA2$meanHg) ~ log10(scXgeochemProdgtZeroSA2$meanscp2021)), col="red", lty=2)
+
+ggplot(data=scXgeochemProdgtZeroSA2, aes(x=log10(meanscp2021), y=log10(meanHg))) +
+  geom_point() +
+  
+  # add y error bars
+  geom_errorbar(aes(ymin=log10(meanHg-seHg), ymax=log10(meanHg+seHg)), width=.1) +
+  
+  geom_smooth(method="lm", se=T) +
+  xlab("log10 sugarcane production 2020/2021 (t)") +
+  ylab("log10 mean measured Hg (ng/g)")
+
+## Hg predicted from RF model
+scpoly <- vect("sugarcane.shp")
+scpoly
+names(scpoly)
+scpoly$sugarcan_4 # 2020-2021 production in t
+
+lHg.rst <- rast("HgPredSpatRFlog10.tif")
+lHg.rst
+
+# overlay scpoly on lHg
+scHg <- terra::extract(lHg.rst, scpoly, fun='mean', na.rm=T)
+scHg
+
+scpoly$lHgPred <- scHg$prediction
+scpoly
+
+plot(log10(scpoly$sugarcan_4), scpoly$lHgPred, pch=19,
+     xlab="log10 sugarcane production 2020/2021 (t)", ylab="log10 mean predicted Hg (ng/g)")
+abline(lm(scpoly$lHgPred ~ log10(scpoly$sugarcan_4)), col="red", lty=2)
+
+plotpreddat <- data.frame(scprod=scpoly$sugarcan_4, lHg=scpoly$lHgPred)
+ggplot(data=plotpreddat, aes(x=log10(scprod), y=lHg)) +
+  geom_point() +
+  geom_smooth(method="lm", se=F) +
+  xlab("log10 sugarcane production 2020/2021 (t)") +
+  ylab("log10 mean predicted Hg (ng/g)")
+
                              
 
 
@@ -2911,8 +4318,10 @@ abline(v=quantile(log10(stor.mat[,"ER"]), probs=0.9), col="blue", lwd=2, lty=2)
 ######################################################
 
 # remove NAs
+colnames(TOS.test)
 TOS.noNA <- na.omit(TOS.test[,c("LON","LAT","lgs","lgtclay","pH15","lelecond","lLOI","prescott","soilH20",
-                            "llai","soillN","soillP","lAl","lMn","lCu","lPb","lSb","lNi","lKThU")])
+                            "llai","soillN","soillP","lAl","lMn","lCu","lPb","lSb","lNi","lKThU","ferric2",
+                            "Alox", "Feox", "Pox")])
 head(TOS.noNA)
 dim(TOS.noNA)
 
@@ -2922,7 +4331,6 @@ mxy <- as.matrix(TOS.xy)
 rownames(mxy) <- NULL
 
 # Aus map as a SpatialPolygons object
-setwd("~/Documents/Papers/Soil/Hg Aus/data/maps")
 aus.sf <- sf::st_read("aus.shp")
 
 s.label(mxy, ppoint.pch = 15, ppoint.col = "darkseagreen4")
@@ -3073,6 +4481,8 @@ MC.env$obs[17]
 
 
 
+
+
 ########################
 ## distribution model ##
 ## based on train rf  ##
@@ -3082,12 +4492,10 @@ MC.env$obs[17]
 # store boundaries in a single extent object
 geogr.extent <- ext(soilclay)
 
-# define CRS (WGS 84)
-crsUse <- "+proj=longlat +datum=WGS84 +no_defs"
-
 # prepare data
 TOS.dm.dat <- na.omit(TOS.test[,c("LON","LAT","lHg","lgs","lgtclay","pH15","lelecond","lLOI","prescott","soilH20",
-                                "llai","soillN","soillP","lAl","lMn","lCu","lPb","lSb","lNi","lKThU")])
+                                "llai","soillN","soillP","lAl","lMn","lCu","lPb","lSb","lNi","lKThU","ferric2",
+                                "Alox","Feox","Pox")])
 
 HgDat <- data.frame(
   x = TOS.dm.dat$LON,
@@ -3101,12 +4509,19 @@ HgDat <- data.frame(
   lai = TOS.dm.dat$llai,
   soilN = TOS.dm.dat$soillN,
   soilP = TOS.dm.dat$soillP,
-  KThU = TOS.dm.dat$lKThU
+  KThU = TOS.dm.dat$lKThU,
+  ferric2=TOS.dm.dat$ferric2,
+  Alox=TOS.dm.dat$Alox,
+  Feox=TOS.dm.dat$Feox,
+  Pox=TOS.dm.dat$Pox
 )
+saveRDS(HgDat, file = "HgDat.rds")
 
 # convert to spatial points
 HgSpat <- HgDat
 coordinates(HgSpat) <- ~x+y
+saveRDS(HgSpat, file = "HgSpat.rds")
+
 
 # prepare training data
 training_data <- data.frame(
@@ -3119,7 +4534,11 @@ training_data <- data.frame(
   lai = HgSpat$lai,
   soilN = HgSpat$soilN,
   soilP = HgSpat$soilP,
-  KThU = HgSpat$KThU
+  KThU = HgSpat$KThU,
+  ferric2=HgSpat$ferric2,
+  Alox=HgSpat$Alox,
+  Feox=HgSpat$Feox,
+  Pox=HgSpat$Pox
 )
 
 crs(HgSpat) <- crsUse
@@ -3157,70 +4576,15 @@ rf_model$results
 rf_model$finalModel$importance
 str(rf_model)
 
-# spatial predictor rasters
-# place all predictor rasters on same scale as training data
-# clay
-clay.rst <- log(soilclay/100)/(1-(soilclay/100))
-pH.rst <- soilpH
-Prescott.rst <- prescott
-soilH20.rst <- soilH20.mn.rst
-KThU.rst <- app(KThUcmb, function(x) {
-  ifelse(is.na(x) == T, NA, log10(x))
-})
-KThU.rst <- app(KThU.rst, function(x) {
-  ifelse(is.infinite(x) == T, NA, x)
-})
-KThu.rst <- na.omit(KThU.rst)
-KThu.rst
-
-lai.rst <- app(lai.mn.rst, function(x) {
-  ifelse(x == 0, 0, log10(x))
-})
-lai.rst <- na.omit(lai.rst)
-lai.rst
-
-soilN.rst <- log10(soilN)
-soilP.rst <- log10(soilP)
-
-# sample to same (lowest) resolution
-clay.rsmp <- resample(clay.rst, lai.rst)
-plot(clay.rsmp)
-crs(clay.rsmp) <- crsUse
-
-pH.rsmp <- resample(pH.rst, lai.rst)
-plot(pH.rsmp)
-crs(pH.rsmp) <- crsUse
-
-Prescott.rsmp <- resample(Prescott.rst, lai.rst)
-plot(Prescott.rsmp)
-crs(Prescott.rsmp) <- crsUse
-
-soilH20.rsmp <- resample(soilH20.rst, lai.rst)
-plot(soilH20.rsmp)
-crs(soilH20.rsmp) <- crsUse
-
-lai.rsmp <- resample(lai.rst, soilH20.rsmp)
-plot(lai.rsmp)
-crs(lai.rsmp) <- crsUse
-
-soilN.rsmp <- resample(soilN.rst, lai.rst)
-plot(soilN.rsmp)
-crs(soilN.rsmp) <- crsUse
-
-soilP.rsmp <- resample(soilP.rst, lai.rst)
-plot(soilP.rsmp)
-crs(soilP.rsmp) <- crsUse
-
-KThU.rsmp <- resample(KThU.rst, lai.rst)
-plot(KThU.rsmp)
-crs(KThU.rsmp) <- crsUse
 
 # create prediction raster stack of environmental variables
-envVars <- c(clay.rsmp,pH.rsmp,Prescott.rsmp,soilH20.rsmp,lai.rsmp,soilN.rsmp,soilP.rsmp,KThU.rsmp)
-names(envVars) <- c("clay","pH","Prescott","soilH20","lai","soilN","soilP","KThU")
+envVars <- c(clay.rsmp,pH.rsmp,Prescott.rsmp,soilH20.rsmp,lai.rsmp,soilN.rsmp,soilP.rsmp,KThU.rsmp,
+             ferric2.rsmp,Alox.rsmp,Feox.rsmp,Pox.rsmp)
+names(envVars) <- c("clay","pH","Prescott","soilH20","lai","soilN","soilP","KThU","ferric2","Alox","Feox","Pox")
 names(envVars)
 plot(envVars)
 envVars
+saveRDS(envVars, file = "envVars.rds")
 
 # spatial predictions
 HgPred <- terra::predict(envVars, rf_model, na.rm=T)
@@ -3228,6 +4592,7 @@ plot(HgPred)
 points(HgDat, pch=20, col="black", cex=0.5)
 HgPred.rf.bt <- HgPred^10
 plot(HgPred.rf.bt)
+writeRaster(HgPred.rf.bt, "HgPredRFbt.tif", overwrite=T)
 
 # model cross-validation
 cv <- train(
@@ -3275,7 +4640,7 @@ haversine_matrix <- distm(
 )
 
 # format the distance matrix for spatialRF
-# spatialRF expects: square matrix; row and column names; symmetric distances
+#' spatialRF expects: square matrix; row and column names; symmetric distances
 # add row and column names
 rownames(haversine_matrix) <- paste0("point_", 1:dim(HgDat)[1])
 colnames(haversine_matrix) <- paste0("point_", 1:dim(HgDat)[1])
@@ -3341,12 +4706,12 @@ spatialRF::plot_training_df(
   dependent.variable.name = dependent.variable.name,
   predictor.variable.names = predictor.variable.names,
   ncol = 3,
-  point.color = viridis::viridis(100, option = "F"),
+  point.color = rev(viridis::viridis(100, option = "F")),
   line.color = "gray30"
 )
 
 # Moran's I
-spatialRF::plot_training_df_moran(
+moransIplot <- spatialRF::plot_training_df_moran(
   data = HgDat,
   dependent.variable.name = dependent.variable.name,
   predictor.variable.names = predictor.variable.names,
@@ -3359,6 +4724,13 @@ spatialRF::plot_training_df_moran(
   ),
   point.color = "gray40"
 )
+moransIplot
+str(moransIplot)
+
+moransIplot$data$distance.threshold
+moransIplot$data$p.value
+write.csv(moransIplot$data, "moransIplot.csv", row.names=F)
+
 
 # possible interactions
 interactions <- spatialRF::the_feature_engineer(
@@ -3379,6 +4751,14 @@ kableExtra::kbl(
 ) %>%
   kableExtra::kable_paper("hover", full_width = F)
 
+
+# creating and registering the cluster
+local.cluster <- parallel::makeCluster(
+  parallel::detectCores() - 1,
+  type = "PSOCK"
+)
+doParallel::registerDoParallel(cl = local.cluster)
+
 # non-spatial random forest
 model.non.spatial <- spatialRF::rf(
   data = HgDat,
@@ -3391,17 +4771,36 @@ model.non.spatial <- spatialRF::rf(
   scaled.importance=T
 )
 
+# stopping the cluster
+parallel::stopCluster(cl = local.cluster)
+
 # residual diagnostics
 spatialRF::plot_residuals_diagnostics(
   model.non.spatial,
   verbose = FALSE
 )
 
+# output multi-scale Moran's I of non-spatial model residuals
+ns.resids <- spatialRF::plot_residuals_diagnostics(
+  model.non.spatial,
+  verbose = FALSE
+)
+str(ns.resids)
+ns.MoranI.resid.dat <- ns.resids[[3]]$data
+write.csv(ns.MoranI.resid.dat, "nsMoransIresid.csv", row.names=F)
+
+
 # variable importance
 spatialRF::plot_importance(
   model.non.spatial,
   verbose = FALSE
 )
+
+nsm.imp <- spatialRF::plot_importance(
+  model.non.spatial,
+  verbose = FALSE
+)
+nsm.imp
 
 importance.df <- randomForestExplainer::measure_importance(
   model.non.spatial,
@@ -3437,7 +4836,7 @@ model.non.spatial$importance$per.variable %>%
 # local importance
 local.importance <- spatialRF::get_importance_local(model.non.spatial)
 kableExtra::kbl(
-  round(local.importance[1:10, 1:5], 0),
+  round(local.importance[1:10, 1:5], 3),
   format = "html"
 ) %>%
   kableExtra::kable_paper("hover", full_width = F)
@@ -3468,6 +4867,36 @@ p1 <- ggplot2::ggplot() +
     ggplot2::aes(
       x = x,
       y = y,
+      color = ferric2
+    )
+  ) +
+  ggplot2::scale_x_continuous(limits = c(112, 155)) +
+  ggplot2::scale_y_continuous(limits = c(-45, -10))  +
+  ggplot2::scale_color_gradient2(
+    low = color.low, 
+    high = color.high
+  ) +
+  ggplot2::theme_bw() +
+  ggplot2::theme(legend.position = "bottom") + 
+  ggplot2::ggtitle("ferric PC2") +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(hjust = 0.5),
+    legend.key.width = ggplot2::unit(1,"cm")
+  ) + 
+  ggplot2::labs(color = "importance") + 
+  ggplot2::xlab("longitude") + 
+  ggplot2::ylab("latitude")
+
+p2 <- ggplot2::ggplot() +
+  ggplot2::geom_sf(
+    data = aus.sf,
+    fill = "white"
+  ) +
+  ggplot2::geom_point(
+    data = local.importance,
+    ggplot2::aes(
+      x = x,
+      y = y,
       color = soilN
     )
   ) +
@@ -3488,7 +4917,7 @@ ggplot2::scale_color_gradient2(
   ggplot2::xlab("longitude") + 
   ggplot2::ylab("latitude")
 
-p2 <- ggplot2::ggplot() +
+p3 <- ggplot2::ggplot() +
   ggplot2::geom_sf(
     data = aus.sf,
     fill = "white"
@@ -3518,7 +4947,37 @@ p2 <- ggplot2::ggplot() +
   ggplot2::xlab("longitude") + 
   ggplot2::ylab("latitude")
 
-p3 <- ggplot2::ggplot() +
+p4 <- ggplot2::ggplot() +
+  ggplot2::geom_sf(
+    data = aus.sf,
+    fill = "white"
+  ) +
+  ggplot2::geom_point(
+    data = local.importance,
+    ggplot2::aes(
+      x = x,
+      y = y,
+      color = Pox
+    )
+  ) +
+  ggplot2::scale_x_continuous(limits = c(112, 155)) +
+  ggplot2::scale_y_continuous(limits = c(-45, -10))  +
+  ggplot2::scale_color_gradient2(
+    low = color.low, 
+    high = color.high
+  ) +
+  ggplot2::theme_bw() +
+  ggplot2::theme(legend.position = "bottom") +
+  ggplot2::ggtitle("phosphorus oxide") +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(hjust = 0.5),
+    legend.key.width = ggplot2::unit(1,"cm")
+  ) + 
+  ggplot2::labs(color = "importance") + 
+  ggplot2::xlab("longitude") + 
+  ggplot2::ylab("latitude")
+
+p5 <- ggplot2::ggplot() +
   ggplot2::geom_sf(
     data = aus.sf,
     fill = "white"
@@ -3548,7 +5007,7 @@ p3 <- ggplot2::ggplot() +
   ggplot2::xlab("longitude") + 
   ggplot2::ylab("latitude")
 
-p4 <- ggplot2::ggplot() +
+p6 <- ggplot2::ggplot() +
   ggplot2::geom_sf(
     data = aus.sf,
     fill = "white"
@@ -3578,9 +5037,10 @@ p4 <- ggplot2::ggplot() +
   ggplot2::xlab("longitude") + 
   ggplot2::ylab("latitude")
 
-(p1 + p2) / (p3 + p4)
 
-# CONCLUSION: no real evidence for changing variable importance over space
+(p1 + p2 + p3) / (p4 + p5 + p6)
+
+# no real evidence for changing variable importance over space
 
 # response curves and surfaces
 spatialRF::plot_response_curves(
@@ -3600,11 +5060,11 @@ spatialRF::plot_response_curves(
   ncol = 4
 )
 
-# lai
+# ferric2
 pdp::partial(
   model.non.spatial, 
   train = HgDat, 
-  pred.var = "lai", 
+  pred.var = "ferric2", 
   plot = TRUE, 
   grid.resolution = 200
 )
@@ -3627,20 +5087,29 @@ pdp::partial(
   grid.resolution = 200
 )
 
+# Pox
+pdp::partial(
+  model.non.spatial, 
+  train = HgDat, 
+  pred.var = "Pox", 
+  plot = TRUE, 
+  grid.resolution = 200
+)
+
+# lai
+pdp::partial(
+  model.non.spatial, 
+  train = HgDat, 
+  pred.var = "lai", 
+  plot = TRUE, 
+  grid.resolution = 200
+)
+
 # soil H2O
 pdp::partial(
   model.non.spatial, 
   train = HgDat, 
   pred.var = "soilH20", 
-  plot = TRUE, 
-  grid.resolution = 200
-)
-
-# KThU
-pdp::partial(
-  model.non.spatial, 
-  train = HgDat, 
-  pred.var = "KThU", 
   plot = TRUE, 
   grid.resolution = 200
 )
@@ -3697,23 +5166,37 @@ spatialRF::plot_moran(
 
 model.spatial$importance$per.variable$variable
 names(envVars)
-envVars2 <- c(soilN.rsmp,lai.rsmp,Prescott.rsmp,soilH20.rsmp,KThU.rsmp,soilP.rsmp,pH.rsmp,clay.rsmp)
-names(envVars2) <- c("soilN", "lai", "Prescott", "soilH20", "KThU", "soilP", "pH", "clay")
+#envVars2 <- c(soilN.rsmp,lai.rsmp,Prescott.rsmp,soilH20.rsmp,KThU.rsmp,soilP.rsmp,pH.rsmp,clay.rsmp,
+#              ferric2.rsmp,Alox.rsmp,Feox.rsmp,Pox.rsmp)
+#names(envVars2) <- c("soilN", "lai", "Prescott", "soilH20", "KThU", "soilP", "pH", "clay", "ferric2",
+#                     "Alox","Feox","Pox")
 names(envVars2)
 plot(envVars2)
 envVars2
+saveRDS(envVars2, file = "envVars2.rds")
+
 
 HgPredNoSpat <- terra::predict(envVars2, model.non.spatial, na.rm=T)
 plot(HgPredNoSpat)
 points(HgDat, pch=20, col="black", cex=0.5)
 HgPredNoSpat.rf.bt <- HgPredNoSpat^10
 plot(HgPredNoSpat.rf.bt)
+writeRaster(HgPredNoSpat.rf.bt, "HgPredNoSpatRFbt.tif", overwrite=T)
 
 HgPredSpat <- terra::predict(envVars2, model.spatial, na.rm=T)
 plot(HgPredSpat)
+writeRaster(HgPredSpat, "HgPredSpatRFlog10.tif", overwrite=T)
+
+HgPredSpatImp <- rast('HgPredSpatRFlog10.tif')
+writeRaster(HgPredSpatImp, "HgPredSpatRFlog10.nc", filetype="netcdf", overwrite=TRUE) # write to NetCDF format
+
 points(HgDat, pch=20, col="black", cex=0.5)
 HgPredSpat.rf.bt <- HgPredSpat^10
 plot(HgPredSpat.rf.bt)
+writeRaster(HgPredSpat.rf.bt, "HgPredSpatRFbt.tif", overwrite=T)
+
+HgPredSpatBTImp <- rast('HgPredSpatRFbt.tif')
+writeRaster(HgPredSpatBTImp, "HgPredSpatRF.nc", filetype="netcdf", overwrite=TRUE) # write to NetCDF format
 
 p1 <- spatialRF::plot_importance(
   model.non.spatial, 
@@ -3756,17 +5239,30 @@ model.spatial <- rf_tuning(
     length(model.spatial$ranger.arguments$predictor.variable.names), # number of predictors
     by = 9),
   min.node.size = c(5, 15),
-  seed = random.seed,
   verbose = FALSE
 )
+
+# increase memory to max
+mem.maxVSize(v = Inf)
+
+# creating and registering the cluster
+local.cluster <- parallel::makeCluster(
+  parallel::detectCores() - 1,
+  #1,
+  type = "PSOCK"
+)
+doParallel::registerDoParallel(cl = local.cluster)
 
 # stochastic version
 model.spatial.repeat <- spatialRF::rf_repeat(
   model = model.spatial, 
   repetitions = 250,
-  seed = random.seed,
   verbose = FALSE
 )
+
+# stopping the cluster
+parallel::stopCluster(cl = local.cluster)
+
 
 # variable importance
 stochSpatialRFvarImp <- spatialRF::plot_importance(
@@ -3790,6 +5286,7 @@ viXvar.stats <- stochSpatialRFvarImp.dat %>%
     n = n()
   )
 viXvar.stats
+write.csv(viXvar.stats, "viXvarstats.csv", row.names=F)
 
 # response curves
 spatialRF::plot_response_curves(model=model.spatial.repeat, quantiles = c(0.5, 0.975, 0.025), ncol = 3)
@@ -3799,9 +5296,6 @@ spatialRF::plot_response_curves(model=model.spatial.repeat, quantiles = c(0.5, 0
 ## tuned spatial model ##
 ## stochastic          ##
 #########################
-
-# increase memory to max
-mem.maxVSize(v = Inf)
 
 # creating and registering the cluster
 local.cluster <- parallel::makeCluster(
@@ -3866,6 +5360,7 @@ viXvar.stats <- stochSpatTunedRFvarImp.dat %>%
     n = n()
   )
 viXvar.stats
+write.csv(viXvar.stats, "viXvarstatsTunedSpatial.csv", row.names=F)
 
 # performance
 spatialRF::print_performance(model.tuned)
@@ -3887,7 +5382,6 @@ kableExtra::kbl(
 ) %>%
   kableExtra::kable_paper("hover", full_width = F)
 
-# plot top 4 spatial predictors
 p1 <- ggplot2::ggplot() +
   ggplot2::geom_sf(data = aus.sf, fill = "white") +
   ggplot2::geom_point(
@@ -3916,7 +5410,7 @@ p2 <- ggplot2::ggplot() +
     ggplot2::aes(
       x = x,
       y = y,
-      color = spatial_predictor_100000_18
+      color = spatial_predictor_100000_15
     ),
     size = 2.5
   ) +
@@ -3925,7 +5419,7 @@ p2 <- ggplot2::ggplot() +
   ggplot2::labs(color = "eigenvalue") +
   ggplot2::scale_x_continuous(limits = c(112, 155)) +
   ggplot2::scale_y_continuous(limits = c(-45, -10))  +
-  ggplot2::ggtitle("spatial_predictor_100000_18") + 
+  ggplot2::ggtitle("spatial_predictor_100000_15") + 
   ggplot2::theme(legend.position = "bottom")+ 
   ggplot2::xlab("longitude") + 
   ggplot2::ylab("latitude")
@@ -3937,7 +5431,7 @@ p3 <- ggplot2::ggplot() +
     ggplot2::aes(
       x = x,
       y = y,
-      color = spatial_predictor_100000_29	
+      color = spatial_predictor_100000_18	
     ),
     size = 2.5
   ) +
@@ -3946,7 +5440,7 @@ p3 <- ggplot2::ggplot() +
   ggplot2::labs(color = "eigenvalue") +
   ggplot2::scale_x_continuous(limits = c(112, 155)) +
   ggplot2::scale_y_continuous(limits = c(-45, -10))  +
-  ggplot2::ggtitle("spatial_predictor_100000_29	") + 
+  ggplot2::ggtitle("spatial_predictor_100000_18	") + 
   ggplot2::theme(legend.position = "bottom")+ 
   ggplot2::xlab("longitude") + 
   ggplot2::ylab("latitude")
@@ -3958,7 +5452,7 @@ p4 <- ggplot2::ggplot() +
     ggplot2::aes(
       x = x,
       y = y,
-      color = spatial_predictor_100000_2
+      color = spatial_predictor_100000_29
     ),
     size = 2.5
   ) +
@@ -3967,7 +5461,7 @@ p4 <- ggplot2::ggplot() +
   ggplot2::labs(color = "eigenvalue") +
   ggplot2::scale_x_continuous(limits = c(112, 155)) +
   ggplot2::scale_y_continuous(limits = c(-45, -10))  +
-  ggplot2::ggtitle("spatial_predictor_100000_2") + 
+  ggplot2::ggtitle("spatial_predictor_100000_29") + 
   ggplot2::theme(legend.position = "bottom")+ 
   ggplot2::xlab("longitude") + 
   ggplot2::ylab("latitude")
@@ -3977,11 +5471,46 @@ p4 <- ggplot2::ggplot() +
 
 # response curves
 respCurvRF <- spatialRF::plot_response_curves(model=model.tuned, quantiles = c(0.5), ncol = 3)
+respCurvRF
 str(respCurvRF[[1]])
 
-# soil N
 respCurvRF[[1]]$labels$x
-soilNrespCurvRF <- respCurvRF[[1]]
+
+
+# ferric2
+respCurvRF[[1]]
+respCurvRF[[1]]$labels$x
+ferricrespCurvRF <- respCurvRF[[1]]
+str(ferricrespCurvRF)
+
+table(ferricrespCurvRF$layers[[1]]$data$id)
+
+ferricpredRF.dat <- data.frame(iter=ferricrespCurvRF$layers[[1]]$data$id, 
+                               ferric=ferricrespCurvRF$layers[[1]]$data$ferric,
+                               Hg=ferricrespCurvRF$layers[[1]]$data$Hg,
+                               quantile=ferricrespCurvRF$layers[[1]]$data$quantile)
+
+head(ferricpredRF.dat)
+ferricpredRFq.5.dat <- subset(ferricpredRF.dat, quantile==0.5)
+dim(ferricpredRFq.5.dat)
+
+ferricpredRF.5Xiter.stats <- ferricpredRFq.5.dat %>%
+  group_by(iter) %>%
+  summarise(
+    x = mean(ferric, na.rm = TRUE),
+    meany = mean(Hg, na.rm = TRUE),
+    uppery = quantile(Hg, probs=0.975, na.rm = TRUE),
+    lowery = quantile(Hg, probs=0.025, na.rm = TRUE),
+  )
+ferricpredRF.5Xiter.stats
+range(ferricpredRF.5Xiter.stats$x, na.rm=T)
+c(min(ferricpredRF.5Xiter.stats$lowery, na.rm=T), max(ferricpredRF.5Xiter.stats$uppery, na.rm=T))
+write.csv(ferricpredRF.5Xiter.stats, "ferricpredRF.5Xiter.stats.csv", row.names=F)
+
+
+# soil N
+respCurvRF[[2]]$labels$x
+soilNrespCurvRF <- respCurvRF[[2]]
 str(soilNrespCurvRF)
 
 table(soilNrespCurvRF$layers[[1]]$data$id)
@@ -4005,10 +5534,11 @@ soilNpredRF.5Xiter.stats <- soilNpredRFq.5.dat %>%
 soilNpredRF.5Xiter.stats
 range(soilNpredRF.5Xiter.stats$x, na.rm=T)
 c(min(soilNpredRF.5Xiter.stats$lowery, na.rm=T), max(soilNpredRF.5Xiter.stats$uppery, na.rm=T))
+write.csv(soilNpredRF.5Xiter.stats, "soilNpredRF.5Xiter.stats.csv", row.names=F)
 
 # Prescott
-respCurvRF[[2]]$labels$x
-PrescottrespCurvRF <- respCurvRF[[2]]
+respCurvRF[[3]]$labels$x
+PrescottrespCurvRF <- respCurvRF[[3]]
 str(PrescottrespCurvRF)
 
 table(PrescottrespCurvRF$layers[[1]]$data$id)
@@ -4032,10 +5562,11 @@ PrescottpredRF.5Xiter.stats <- PrescottpredRFq.5.dat %>%
 PrescottpredRF.5Xiter.stats
 range(PrescottpredRF.5Xiter.stats$x, na.rm=T)
 c(min(PrescottpredRF.5Xiter.stats$lowery, na.rm=T), max(PrescottpredRF.5Xiter.stats$uppery, na.rm=T))
+write.csv(PrescottpredRF.5Xiter.stats, "PrescottpredRF.5Xiter.stats.csv", row.names=F)
 
 # LAI
-respCurvRF[[3]]$labels$x
-lairespCurvRF <- respCurvRF[[3]]
+respCurvRF[[4]]$labels$x
+lairespCurvRF <- respCurvRF[[4]]
 str(lairespCurvRF)
 
 table(lairespCurvRF$layers[[1]]$data$id)
@@ -4059,15 +5590,45 @@ laipredRF.5Xiter.stats <- laipredRFq.5.dat %>%
 laipredRF.5Xiter.stats
 range(laipredRF.5Xiter.stats$x, na.rm=T)
 c(min(laipredRF.5Xiter.stats$lowery, na.rm=T), max(laipredRF.5Xiter.stats$uppery, na.rm=T))
+write.csv(laipredRF.5Xiter.stats, "laipredRF.5Xiter.stats.csv", row.names=F)
+
+# Pox
+respCurvRF[[5]]$labels$x
+PoxrespCurvRF <- respCurvRF[[5]]
+str(PoxrespCurvRF)
+
+table(PoxrespCurvRF$layers[[1]]$data$id)
+
+PoxpredRF.dat <- data.frame(iter=PoxrespCurvRF$layers[[1]]$data$id,
+                            Pox=PoxrespCurvRF$layers[[1]]$data$Pox,
+                            Hg=PoxrespCurvRF$layers[[1]]$data$Hg,
+                            quantile=PoxrespCurvRF$layers[[1]]$data$quantile)
+head(PoxpredRF.dat)
+PoxpredRFq.5.dat <- subset(PoxpredRF.dat, quantile==0.5)
+dim(PoxpredRFq.5.dat)
+
+PoxpredRF.5Xiter.stats <- PoxpredRFq.5.dat %>%
+  group_by(iter) %>%
+  summarise(
+    x = mean(Pox, na.rm = TRUE),
+    meany = mean(Hg, na.rm = TRUE),
+    uppery = quantile(Hg, probs=0.975, na.rm = TRUE),
+    lowery = quantile(Hg, probs=0.025, na.rm = TRUE),
+  )
+PoxpredRF.5Xiter.stats
+range(PoxpredRF.5Xiter.stats$x, na.rm=T)
+c(min(PoxpredRF.5Xiter.stats$lowery, na.rm=T), max(PoxpredRF.5Xiter.stats$uppery, na.rm=T))
+write.csv(PoxpredRF.5Xiter.stats, "PoxpredRF.5Xiter.stats.csv", row.names=F)
+
 
 # soil P
-respCurvRF[[4]]$labels$x
-soilPrespCurvRF <- respCurvRF[[4]]
+soilPrespCurvRF <- spatialRF::plot_response_curves(model=model.tuned, variables="soilP", quantiles = c(0.5), ncol = 3)
+soilPrespCurvRF$labels$x
 str(soilPrespCurvRF)
 
 table(soilPrespCurvRF$layers[[1]]$data$id)
 
-soilPpredRF.dat <- data.frame(iter=soilPrespCurvRF$layers[[1]]$data$id, 
+soilPpredRF.dat <- data.frame(iter=soilPrespCurvRF$layers[[1]]$data$id,
                             soilP=soilPrespCurvRF$layers[[1]]$data$soilP,
                             Hg=soilPrespCurvRF$layers[[1]]$data$Hg,
                             quantile=soilPrespCurvRF$layers[[1]]$data$quantile)
@@ -4086,3 +5647,31 @@ soilPpredRF.5Xiter.stats <- soilPpredRFq.5.dat %>%
 soilPpredRF.5Xiter.stats
 range(soilPpredRF.5Xiter.stats$x, na.rm=T)
 c(min(soilPpredRF.5Xiter.stats$lowery, na.rm=T), max(soilPpredRF.5Xiter.stats$uppery, na.rm=T))
+write.csv(soilPpredRF.5Xiter.stats, "soilPpredRF.5Xiter.stats.csv", row.names=F)
+
+
+
+# comparing spatial and non-spatial models stochastically
+comparison <- spatialRF::rf_compare(
+  models = list(
+    'non-spatial' = model.non.spatial,
+    'spatial' = model.tuned
+  ),
+  xy = xy,
+  repetitions = 100,
+  training.fraction = 0.8,
+  metrics = "r.squared"
+)
+
+x <- comparison$comparison.df %>% 
+  dplyr::group_by(model, metric) %>% 
+  dplyr::summarise(value = round(median(value), 3)) %>% 
+  dplyr::arrange(metric) %>% 
+  as.data.frame()
+colnames(x) <- c("model", "metric", "median")
+kableExtra::kbl(
+  x,
+  format = "html"
+) %>%
+  kableExtra::kable_paper("hover", full_width = F)
+
